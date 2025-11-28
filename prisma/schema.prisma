@@ -1,0 +1,63 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  password    String
+  role        Role     @default(TEACHER)
+  createdAt   DateTime @default(now())
+
+  schoolId    String?
+  school      School?  @relation(fields: [schoolId], references: [id])
+
+  worksheets  Worksheet[]
+}
+
+model School {
+  id          String    @id @default(uuid())
+  name        String
+  maxTeachers Int       @default(10)
+  createdAt   DateTime  @default(now())
+
+  subscriptionValidUntil DateTime?
+
+  users       User[]
+  invites     Invite[]
+  worksheets  Worksheet[]
+}
+
+model Invite {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime?
+
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+}
+
+model Worksheet {
+  id         String   @id @default(uuid())
+  title      String
+  pdfUrl     String?
+  createdAt  DateTime @default(now())
+
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+
+  schoolId   String?
+  school     School?  @relation(fields: [schoolId], references: [id])
+}
+
+enum Role {
+  TEACHER
+  SCHOOL_ADMIN
+  ADMIN
+}
