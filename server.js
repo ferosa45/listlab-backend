@@ -20,28 +20,34 @@ const __dirname = path.dirname(__filename);
 // Init
 const app = express();
 const prisma = new PrismaClient();
-const PORT = process.env.PORT || 8080;
+
+// ❗ Railway MUST give the port. No fallback. No 8080.
+const PORT = process.env.PORT;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 
 // Middleware
-app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
+app.use(
+  cors({
+    origin: FRONTEND_ORIGIN,
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 
-// HEALTHCHECK
+// ---------- HEALTHCHECK ----------
 app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    db: "skipped",
+  return res.status(200).json({
+    ok: true,
+    message: "Health OK",
     time: new Date().toISOString(),
   });
 });
 
-
-// ROOT ROUTE
+// Root
 app.get("/", (req, res) => {
-  res.send("ListLab backend running");
+  res.send("ListLab backend running ✔");
 });
 
 // Helpers
@@ -62,14 +68,15 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// AUTH
+// ----------- AUTH -----------
 app.post(
   "/api/auth/register",
   body("email").isEmail(),
   body("password").isLength({ min: 6 }),
   async (req, res) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    if (!errors.isEmpty())
+      return res.status(400).json({ errors: errors.array() });
 
     const { email, password } = req.body;
 
@@ -89,18 +96,20 @@ app.post(
   }
 );
 
-// GENERATE
+// ----------- MOCK GENERATOR -----------
 function generateMockContent(topic, level) {
-  return `Téma: ${topic}\nRočník: ${level === "1" ? "1. stupeň" : "2. stupeň"}`;
+  return `Téma: ${topic}\nRočník: ${
+    level === "1" ? "1. stupeň" : "2. stupeň"
+  }`;
 }
 
 app.post("/api/generate", async (req, res) => {
   const { topic, level } = req.body;
-  await new Promise((r) => setTimeout(r, 300));
+  await new Promise((r) => setTimeout(r, 200));
   res.json({ ok: true, result: generateMockContent(topic, level) });
 });
 
-// PDF
+// ----------- PDF -----------
 const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
 
 app.post("/api/pdf", (req, res) => {
@@ -108,7 +117,10 @@ app.post("/api/pdf", (req, res) => {
 
   const doc = new PDFDocument();
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", "attachment; filename=listlab.pdf");
+  res.setHeader(
+    "Content-Disposition",
+    "attachment; filename=listlab.pdf"
+  );
   doc.pipe(res);
 
   if (fs.existsSync(FONT_PATH)) doc.font(FONT_PATH);
@@ -120,7 +132,7 @@ app.post("/api/pdf", (req, res) => {
   doc.end();
 });
 
-// LISTEN — THIS IS THE FIX
+// ---------- LISTEN ----------
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`na portu ${PORT}`);
+  console.log(`🚀 ListLab backend running on PORT=${PORT}`);
 });
