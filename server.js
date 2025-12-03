@@ -167,12 +167,17 @@ app.post(
     const { topic, level } = req.body;
     const { ownerType, ownerId } = req.license;
 
-    try {
-      // usage increments
-      await incrementWorksheetUsage(ownerType, ownerId);
-      await incrementAiUsage(ownerType, ownerId);
+    console.log(">>> GENERATE START");
+    console.log("LICENSE:", req.license);
+    console.log("OWNER:", ownerType, ownerId);
 
-      // log worksheet
+    try {
+      await incrementWorksheetUsage(ownerType, ownerId);
+      console.log(">>> WORKSHEET USAGE UPDATED");
+
+      await incrementAiUsage(ownerType, ownerId);
+      console.log(">>> AI USAGE UPDATED");
+
       await prisma.worksheetLog.create({
         data: {
           userId: req.user.id,
@@ -181,11 +186,14 @@ app.post(
         },
       });
 
+      console.log(">>> WORKSHEET LOGGED");
+
       res.json({
         ok: true,
         result: generateMockContent(topic, level),
         license: req.license,
       });
+
     } catch (err) {
       console.error("GENERATE ERROR:", err);
       res.status(500).json({ ok: false, error: "Generation failed" });
