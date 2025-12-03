@@ -285,14 +285,14 @@ app.get("/api/admin/stats", authMiddleware, async (req, res) => {
     });
 
     res.json({
-      ok: true,
-      stats: {
-        totalUsers,
-        newUsers7days,
-        totalWorksheets,
-        worksheets30days
-      }
-    });
+  ok: true,
+  stats: {
+    totalUsers,
+    newUsers: newUsers7days,                 // PRO FRONTEND
+    totalWorksheets,
+    monthlyWorksheets: worksheets30days      // PRO FRONTEND
+  }
+});
 
   } catch (err) {
     console.error("ADMIN /stats error:", err);
