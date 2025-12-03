@@ -266,44 +266,40 @@ app.get("/api/admin/stats", authMiddleware, async (req, res) => {
     return res.status(403).json({ error: "Forbidden" });
 
   try {
+    // Uživatelské statistiky
     const totalUsers = await prisma.user.count();
-    const teachers = await prisma.user.count({ where: { role: "TEACHER" } });
-    const admins = await prisma.user.count({ where: { role: "ADMIN" } });
 
-    const schools = await prisma.school.count();
-    const totalWorksheetLogs = await prisma.worksheetLog.count();
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const week = new Date();
-    week.setDate(week.getDate() - 7);
-
-    const logsToday = await prisma.worksheetLog.count({
-      where: { createdAt: { gte: today } },
+    const newUsers7days = await prisma.user.count({
+      where: {
+        createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+      }
     });
 
-    const logsWeek = await prisma.worksheetLog.count({
-      where: { createdAt: { gte: week } },
+    // Worksheet statistiky
+    const totalWorksheets = await prisma.worksheetLog.count();
+
+    const worksheets30days = await prisma.worksheetLog.count({
+      where: {
+        createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+      }
     });
 
     res.json({
       ok: true,
       stats: {
         totalUsers,
-        teachers,
-        admins,
-        schools,
-        totalWorksheetLogs,
-        logsToday,
-        logsWeek,
-      },
+        newUsers7days,
+        totalWorksheets,
+        worksheets30days
+      }
     });
+
   } catch (err) {
     console.error("ADMIN /stats error:", err);
     res.status(500).json({ error: "Failed to load admin stats" });
   }
 });
+
 
 // ---------- SCHOOLS ----------
 app.get("/api/admin/schools", authMiddleware, async (req, res) => {
