@@ -9,37 +9,39 @@ import PDFDocument from "pdfkit";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 import { body, validationResult } from "express-validator";
+import { fileURLToPath } from "url";
 
+// ---------- CUSTOM LOGIC ----------
 import { licenseContext } from "./src/middleware/licenseContext.js";
+import { checkWorksheetLimit, checkAiLimit } from "./src/middleware/usageLimits.js";
 import { getActiveSubscriptionForUserOrSchool } from "./src/services/subscriptionService.js";
+import { incrementWorksheetUsage, incrementAiUsage } from "./src/services/usageService.js";
 import { ENTITLEMENTS } from "./src/config/entitlements.js";
 
 dotenv.config();
 
-// Paths
+// ---------- PATHS ----------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Init
+// ---------- INIT ----------
 const app = express();
 const prisma = new PrismaClient();
 
-// Config
+// ---------- CONFIG ----------
 const PORT = process.env.PORT || 3001;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 const NODE_ENV = process.env.NODE_ENV || "development";
 
-// Middleware
+// ---------- MIDDLEWARE ----------
 app.use(
   cors({
     origin: [FRONTEND_ORIGIN, "http://localhost:5173"],
     credentials: true,
   })
 );
-
 app.use(express.json());
 app.use(cookieParser());
 
@@ -49,7 +51,7 @@ function setAuthCookie(res, token) {
 
   res.cookie("token", token, {
     httpOnly: true,
-    secure: isProd ? true : false,
+    secure: isProd,
     sameSite: isProd ? "None" : "Lax",
     path: "/",
   });
@@ -59,7 +61,7 @@ function clearAuthCookie(res) {
   const isProd = NODE_ENV === "production";
 
   res.clearCookie("token", {
-    secure: isProd ? true : false,
+    secure: isProd,
     sameSite: isProd ? "None" : "Lax",
     path: "/",
   });
@@ -68,8 +70,7 @@ function clearAuthCookie(res) {
 // ---------- AUTH MIDDLEWARE ----------
 function authMiddleware(req, res, next) {
   try {
-    const token =
-      req.cookies?.token || req.headers.authorization?.split(" ")[1];
+    const token = req.cookies?.token || req.headers.authorization?.split(" ")[1];
     if (!token) return res.status(401).json({ error: "Unauthorized" });
 
     req.user = jwt.verify(token, JWT_SECRET);
@@ -79,19 +80,12 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// ---------- HEALTHCHECK ----------
+// ---------- HEALTH ----------
 app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    ok: true,
-    message: "Health OK",
-    time: new Date().toISOString(),
-  });
+  res.json({ ok: true, message: "Health OK", time: new Date().toISOString() });
 });
 
-// Root
-app.get("/", (_req, res) => {
-  res.send("ListLab backend running ✔");
-});
+app.get("/", (_req, res) => res.send("ListLab backend running ✔"));
 
 // ---------- AUTH ----------
 app.post(
@@ -100,8 +94,7 @@ app.post(
   body("password").isLength({ min: 6 }),
   async (req, res) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty())
-      return res.status(400).json({ errors: errors.array() });
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { email, password } = req.body;
 
@@ -121,6 +114,7 @@ app.post(
     );
 
     setAuthCookie(res, token);
+
     res.json({ ok: true, user: newUser });
   }
 );
@@ -160,39 +154,51 @@ app.post("/api/auth/logout", (_req, res) => {
 
 // ---------- GENERATOR ----------
 function generateMockContent(topic, level) {
-  return `Téma: ${topic}\nRočník: ${
-    level === "1" ? "1. stupeň" : "2. stupeň"
-  }`;
+  return `Téma: ${topic}\nRočník: ${level === "1" ? "1. stupeň" : "2. stupeň"}`;
 }
 
-app.post("/api/generate", authMiddleware, licenseContext, async (req, res) => {
-  const { topic, level } = req.body;
+app.post(
+  "/api/generate",
+  authMiddleware,
+  licenseContext,
+  checkWorksheetLimit,
+  checkAiLimit,
+  async (req, res) => {
+    const { topic, level } = req.body;
+    const { ownerType, ownerId } = req.license;
 
-  try {
-    await prisma.worksheetLog.create({
-      data: {
-        userId: req.user.id,
-        topic: topic || "(nezadáno)",
-        level: level || "1",
-      },
-    });
-  } catch (err) {
-    console.error("WorksheetLog error:", err);
+    try {
+      // usage increments
+      await incrementWorksheetUsage(ownerType, ownerId);
+      await incrementAiUsage(ownerType, ownerId);
+
+      // log worksheet
+      await prisma.worksheetLog.create({
+        data: {
+          userId: req.user.id,
+          topic: topic || "(nezadáno)",
+          level: level || "1",
+        },
+      });
+
+      res.json({
+        ok: true,
+        result: generateMockContent(topic, level),
+        license: req.license,
+      });
+    } catch (err) {
+      console.error("GENERATE ERROR:", err);
+      res.status(500).json({ ok: false, error: "Generation failed" });
+    }
   }
-
-  res.json({
-    ok: true,
-    result: generateMockContent(topic, level),
-    license: req.license,
-  });
-});
+);
 
 // ---------- LICENSE DEBUG ----------
 app.get("/api/debug/sub", authMiddleware, licenseContext, (req, res) => {
   res.json({ ok: true, license: req.license });
 });
 
-// ---------- GET /api/me/license ----------
+// ---------- /api/me/license ----------
 app.get("/api/me/license", authMiddleware, async (req, res) => {
   try {
     const sub = await getActiveSubscriptionForUserOrSchool(req.user);
@@ -220,12 +226,12 @@ const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
 
 app.post("/api/pdf", (req, res) => {
   const { topic, level } = req.body;
-
   const doc = new PDFDocument();
+
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", "attachment; filename=listlab.pdf");
-  doc.pipe(res);
 
+  doc.pipe(res);
   if (fs.existsSync(FONT_PATH)) doc.font(FONT_PATH);
 
   doc.fontSize(20).text(topic, { align: "center" });
@@ -234,7 +240,7 @@ app.post("/api/pdf", (req, res) => {
   doc.end();
 });
 
-// ---------- ADMIN ROUTES ----------
+// ---------- ADMIN USERS ----------
 app.get("/api/admin/users", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
     return res.status(403).json({ error: "Forbidden" });
@@ -260,39 +266,33 @@ app.post("/api/admin/set-role", authMiddleware, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- ADMIN STATS (FINAL CORRECT VERSION) ----------
+// ---------- ADMIN STATS ----------
 app.get("/api/admin/stats", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
     return res.status(403).json({ error: "Forbidden" });
 
   try {
-    // Uživatelské statistiky
     const totalUsers = await prisma.user.count();
 
     const newUsers7days = await prisma.user.count({
-      where: {
-        createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
-      }
+      where: { createdAt: { gte: new Date(Date.now() - 7 * 86400000) } }
     });
 
-    // Worksheet statistiky
     const totalWorksheets = await prisma.worksheetLog.count();
 
     const worksheets30days = await prisma.worksheetLog.count({
-      where: {
-        createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
-      }
+      where: { createdAt: { gte: new Date(Date.now() - 30 * 86400000) } }
     });
 
     res.json({
-  ok: true,
-  stats: {
-    totalUsers,
-    newUsers: newUsers7days,                 // PRO FRONTEND
-    totalWorksheets,
-    monthlyWorksheets: worksheets30days      // PRO FRONTEND
-  }
-});
+      ok: true,
+      stats: {
+        totalUsers,
+        newUsers: newUsers7days,
+        totalWorksheets,
+        monthlyWorksheets: worksheets30days,
+      }
+    });
 
   } catch (err) {
     console.error("ADMIN /stats error:", err);
@@ -300,17 +300,13 @@ app.get("/api/admin/stats", authMiddleware, async (req, res) => {
   }
 });
 
-
-// ---------- SCHOOLS ----------
+// ---------- SCHOOL ----------
 app.get("/api/admin/schools", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
     return res.status(403).json({ error: "Forbidden" });
 
   const schools = await prisma.school.findMany({
-    include: {
-      license: true,
-      users: true,
-    },
+    include: { license: true, users: true },
   });
 
   res.json({ ok: true, schools });
@@ -325,11 +321,7 @@ app.post("/api/admin/schools", authMiddleware, async (req, res) => {
   const school = await prisma.school.create({
     data: {
       name,
-      license: {
-        create: {
-          type: licenseType || "FREE",
-        },
-      },
+      license: { create: { type: licenseType || "FREE" } },
     },
     include: { license: true },
   });
