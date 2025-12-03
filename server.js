@@ -12,11 +12,14 @@ import fs from "fs";
 import { body, validationResult } from "express-validator";
 import { fileURLToPath } from "url";
 
-// ---------- CUSTOM LOGIC ----------
+// ---------- CUSTOM SERVICES & MIDDLEWARE ----------
 import { licenseContext } from "./src/middleware/licenseContext.js";
 import { checkWorksheetLimit, checkAiLimit } from "./src/middleware/usageLimits.js";
+import {
+  incrementWorksheetUsage,
+  incrementAiUsage
+} from "./src/services/usageService.js";
 import { getActiveSubscriptionForUserOrSchool } from "./src/services/subscriptionService.js";
-import { incrementWorksheetUsage, incrementAiUsage } from "./src/services/usageService.js";
 import { ENTITLEMENTS } from "./src/config/entitlements.js";
 
 dotenv.config();
@@ -35,13 +38,14 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 const NODE_ENV = process.env.NODE_ENV || "development";
 
-// ---------- MIDDLEWARE ----------
+// ---------- GLOBAL MIDDLEWARE ----------
 app.use(
   cors({
     origin: [FRONTEND_ORIGIN, "http://localhost:5173"],
     credentials: true,
   })
 );
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -70,7 +74,8 @@ function clearAuthCookie(res) {
 // ---------- AUTH MIDDLEWARE ----------
 function authMiddleware(req, res, next) {
   try {
-    const token = req.cookies?.token || req.headers.authorization?.split(" ")[1];
+    const token =
+      req.cookies?.token || req.headers.authorization?.split(" ")[1];
     if (!token) return res.status(401).json({ error: "Unauthorized" });
 
     req.user = jwt.verify(token, JWT_SECRET);
@@ -85,7 +90,9 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, message: "Health OK", time: new Date().toISOString() });
 });
 
-app.get("/", (_req, res) => res.send("ListLab backend running ✔"));
+app.get("/", (_req, res) => {
+  res.send("ListLab backend running ✔");
+});
 
 // ---------- AUTH ----------
 app.post(
@@ -114,7 +121,6 @@ app.post(
     );
 
     setAuthCookie(res, token);
-
     res.json({ ok: true, user: newUser });
   }
 );
@@ -161,22 +167,35 @@ app.post(
   "/api/generate",
   authMiddleware,
   licenseContext,
+  checkWorksheetLimit,
+  checkAiLimit,
   async (req, res) => {
-    const { topic, level } = req.body;
+    try {
+      const { topic, level } = req.body;
 
-    await prisma.worksheetLog.create({
-      data: {
-        userId: req.user.id,
-        topic: topic || "(nezadáno)",
-        level: level || "1",
-      },
-    });
+      // --- LOG WORKSHEET ---
+      await prisma.worksheetLog.create({
+        data: {
+          userId: req.user.id,
+          topic: topic || "(nezadáno)",
+          level: level || "1",
+        },
+      });
 
-    res.json({
-      ok: true,
-      result: generateMockContent(topic, level),
-      license: req.license,
-    });
+      // --- USAGE INCREMENT ---
+      await incrementWorksheetUsage(req.license.ownerType, req.license.ownerId);
+      await incrementAiUsage(req.license.ownerType, req.license.ownerId);
+
+      res.json({
+        ok: true,
+        result: generateMockContent(topic, level),
+        license: req.license,
+      });
+
+    } catch (err) {
+      console.error("/api/generate ERROR:", err);
+      return res.status(500).json({ ok: false, error: "Generate failed" });
+    }
   }
 );
 
@@ -185,7 +204,7 @@ app.get("/api/debug/sub", authMiddleware, licenseContext, (req, res) => {
   res.json({ ok: true, license: req.license });
 });
 
-// ---------- /api/me/license ----------
+// ---------- LICENSE ----------
 app.get("/api/me/license", authMiddleware, async (req, res) => {
   try {
     const sub = await getActiveSubscriptionForUserOrSchool(req.user);
@@ -200,7 +219,6 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
       validTo: sub?.valid_to ?? null,
       entitlements,
       subscription: sub ?? null,
-      usageThisMonth: null,
     });
   } catch (err) {
     console.error("/api/me/license error:", err);
@@ -227,7 +245,7 @@ app.post("/api/pdf", (req, res) => {
   doc.end();
 });
 
-// ---------- ADMIN USERS ----------
+// ---------- ADMIN ----------
 app.get("/api/admin/users", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
     return res.status(403).json({ error: "Forbidden" });
@@ -245,15 +263,10 @@ app.post("/api/admin/set-role", authMiddleware, async (req, res) => {
 
   const { id, role } = req.body;
 
-  await prisma.user.update({
-    where: { id },
-    data: { role },
-  });
-
+  await prisma.user.update({ where: { id }, data: { role } });
   res.json({ ok: true });
 });
 
-// ---------- ADMIN STATS ----------
 app.get("/api/admin/stats", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
     return res.status(403).json({ error: "Forbidden" });
@@ -262,13 +275,13 @@ app.get("/api/admin/stats", authMiddleware, async (req, res) => {
     const totalUsers = await prisma.user.count();
 
     const newUsers7days = await prisma.user.count({
-      where: { createdAt: { gte: new Date(Date.now() - 7 * 86400000) } }
+      where: { createdAt: { gte: new Date(Date.now() - 7 * 86400000) } },
     });
 
     const totalWorksheets = await prisma.worksheetLog.count();
 
     const worksheets30days = await prisma.worksheetLog.count({
-      where: { createdAt: { gte: new Date(Date.now() - 30 * 86400000) } }
+      where: { createdAt: { gte: new Date(Date.now() - 30 * 86400000) } },
     });
 
     res.json({
@@ -278,16 +291,15 @@ app.get("/api/admin/stats", authMiddleware, async (req, res) => {
         newUsers: newUsers7days,
         totalWorksheets,
         monthlyWorksheets: worksheets30days,
-      }
+      },
     });
-
   } catch (err) {
     console.error("ADMIN /stats error:", err);
     res.status(500).json({ error: "Failed to load admin stats" });
   }
 });
 
-// ---------- SCHOOL ----------
+// ---------- SCHOOLS ----------
 app.get("/api/admin/schools", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
     return res.status(403).json({ error: "Forbidden" });
