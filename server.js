@@ -229,7 +229,9 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
 // ---------- PDF ----------
 const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
 
-// ---------- PDF (chráněno licencí + limity) ----------
+// ---------- PDF (chráněno licencí + worksheet limitem) ----------
+import { checkWorksheetLimit } from "./src/middleware/usageLimits.js";
+
 app.post(
   "/api/pdf",
   authMiddleware,
@@ -238,28 +240,22 @@ app.post(
     try {
       const { topic, level } = req.body;
 
-      // FREE: kontrola limitů, ale NE zvýšení usage
+      // FREE: kontrola pouze worksheet limitu
       if (req.license.planCode === "FREE") {
-
-        const { checkWorksheetLimit, checkAiLimit } = await import("./src/middleware/usageLimits.js");
-
-        // Ručně zavoláme oba limity, ale bez incrementů
-        // (PDF není nová generace, jen export)
-        const fakeReq = { ...req };
+        const fakeReq = req;
         const fakeRes = {
           status: (code) => ({
             json: (data) => {
-              throw { code, ...data };
-            },
-          }),
+              throw { error: data.error, message: data.message, code };
+            }
+          })
         };
 
-        // Tyto middleware vyhodí error, pokud byl limit překročen
         await checkWorksheetLimit(fakeReq, fakeRes, () => {});
-        await checkAiLimit(fakeReq, fakeRes, () => {});
+        // AI limit se u PDF NEKONTROLUJE ❌
       }
 
-      // PDF generace
+      // --- generování PDF ---
       const doc = new PDFDocument();
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=listlab.pdf");
@@ -271,7 +267,6 @@ app.post(
       doc.fontSize(20).text(topic, { align: "center" });
       doc.moveDown();
       doc.fontSize(12).text(generateMockContent(topic, level));
-
       doc.end();
 
     } catch (err) {
@@ -280,14 +275,12 @@ app.post(
       if (err.error === "WORKSHEET_LIMIT_REACHED") {
         return res.status(429).json(err);
       }
-      if (err.error === "AI_LIMIT_REACHED") {
-        return res.status(429).json(err);
-      }
 
       return res.status(500).json({ ok: false, error: "PDF_GENERATION_FAILED" });
     }
   }
 );
+
 
 
 // ---------- ADMIN ----------
