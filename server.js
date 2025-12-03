@@ -230,8 +230,6 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
 const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
 
 // ---------- PDF (chráněno licencí + worksheet limitem) ----------
-import { checkWorksheetLimit } from "./src/middleware/usageLimits.js";
-
 app.post(
   "/api/pdf",
   authMiddleware,
@@ -240,28 +238,27 @@ app.post(
     try {
       const { topic, level } = req.body;
 
-      // FREE: kontrola pouze worksheet limitu
+      // FREE: kontrola pouze worksheet limitu (NE AI limitu)
       if (req.license.planCode === "FREE") {
         const fakeReq = req;
         const fakeRes = {
           status: (code) => ({
             json: (data) => {
               throw { error: data.error, message: data.message, code };
-            }
-          })
+            },
+          }),
         };
 
+        // AI limit se u PDF NEKONTROLUJE
         await checkWorksheetLimit(fakeReq, fakeRes, () => {});
-        // AI limit se u PDF NEKONTROLUJE ❌
       }
 
-      // --- generování PDF ---
+      // --- Generování PDF ---
       const doc = new PDFDocument();
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=listlab.pdf");
 
       doc.pipe(res);
-
       if (fs.existsSync(FONT_PATH)) doc.font(FONT_PATH);
 
       doc.fontSize(20).text(topic, { align: "center" });
@@ -280,6 +277,7 @@ app.post(
     }
   }
 );
+
 
 
 
