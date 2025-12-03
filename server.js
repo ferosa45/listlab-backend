@@ -159,41 +159,30 @@ function generateMockContent(topic, level) {
   }`;
 }
 
-app.post("/api/generate", async (req, res) => {
-  const { topic, level, teacher } = req.body;
+// ----------- GENERATE + LOGGING -----------
+app.post("/api/generate", authMiddleware, async (req, res) => {
+  const { topic, level } = req.body;
 
-  // mock delay
-  await new Promise((r) => setTimeout(r, 200));
-
-  // pokud je přihlášený user, zaznamenáme log
-  let userId = null;
+  // 1) Zapsat worksheet log do DB
   try {
-    // optional: accept token in cookie or auth header
-    const token = req.cookies?.token || req.headers.authorization?.split(" ")[1];
-    if (token) {
-      const payload = jwt.verify(token, JWT_SECRET);
-      userId = payload.id;
-    }
-  } catch (e) {
-    // ignore
+    await prisma.worksheetLog.create({
+      data: {
+        userId: req.user.id,        // ✔ uživatelská ID se bere z middleware
+        topic: topic || "(nezadáno)",
+        level: level || "1",
+      },
+    });
+  } catch (err) {
+    console.error("WorksheetLog error:", err);
   }
 
-  if (userId) {
-    try {
-      await prisma.worksheetLog.create({
-        data: {
-          userId,
-          topic: topic || "(nezadáno)",
-          level: level || "1",
-        },
-      });
-    } catch (err) {
-      console.error("Log create error:", err);
-    }
-  }
-
-  res.json({ ok: true, result: generateMockContent(topic, level) });
+  // 2) Vrátit generovaný obsah
+  res.json({
+    ok: true,
+    result: generateMockContent(topic, level),
+  });
 });
+
 
 // ----------- PDF -----------
 const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
