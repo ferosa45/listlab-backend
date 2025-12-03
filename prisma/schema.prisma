@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String       @id @default(uuid())
+  email     String       @unique
+  password  String
+  role      String       @default("TEACHER")
+  createdAt DateTime     @default(now())
+
+  schoolId  String?
+  school    School?      @relation(fields: [schoolId], references: [id])
+
+  logs      WorksheetLog[]
+}
+
+model School {
+  id         String      @id @default(uuid())
+  name       String
+  createdAt  DateTime    @default(now())
+
+  license    License?
+  users      User[]
+}
+
+model License {
+  id         String     @id @default(uuid())
+  schoolId   String     @unique
+  type       String     // FREE / PAID / PRO
+  expiresAt  DateTime?
+  createdAt  DateTime   @default(now())
+
+  school     School     @relation(fields: [schoolId], references: [id])
+}
+
+model WorksheetLog {
+  id         String     @id @default(uuid())
+  userId     String
+  topic      String
+  level      String
+  createdAt  DateTime   @default(now())
+
+  user       User       @relation(fields: [userId], references: [id])
+}
