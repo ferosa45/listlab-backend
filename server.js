@@ -266,6 +266,44 @@ app.get("/api/admin/stats", authMiddleware, async (req, res) => {
   });
 });
 
+// ---------- ADMIN STATS ----------
+app.get("/api/admin/stats", authMiddleware, async (req, res) => {
+  if (req.user.role !== "ADMIN")
+    return res.status(403).json({ error: "Forbidden" });
+
+  const teachers = await prisma.user.count({ where: { role: "TEACHER" } });
+  const admins = await prisma.user.count({ where: { role: "ADMIN" } });
+  const schools = await prisma.school.count();
+  const worksheets = await prisma.worksheet.count();
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const week = new Date();
+  week.setDate(week.getDate() - 7);
+
+  const logsToday = await prisma.worksheetLog.count({
+    where: { createdAt: { gte: today } }
+  });
+
+  const logsWeek = await prisma.worksheetLog.count({
+    where: { createdAt: { gte: week } }
+  });
+
+  res.json({
+    ok: true,
+    stats: {
+      teachers,
+      admins,
+      schools,
+      worksheets,
+      logsToday,
+      logsWeek,
+    },
+  });
+});
+
+
 // ---------- SCHOOLS ----------
 app.get("/api/admin/schools", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
