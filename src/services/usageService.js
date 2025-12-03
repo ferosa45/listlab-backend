@@ -20,7 +20,10 @@ export async function getOrCreateUsageRecord(ownerType, ownerId) {
         ownerType,
         ownerId,
         year,
-        month
+        month,
+        worksheetsCount: 0,
+        aiGenerations: 0,
+        updatedAt: new Date()
       }
     });
   }
@@ -37,7 +40,7 @@ export async function incrementWorksheetUsage(ownerType, ownerId) {
   return prisma.usageLimit.update({
     where: { id: usage.id },
     data: {
-      worksheetsCount: usage.worksheetsCount + 1,
+      worksheetsCount: (usage.worksheetsCount ?? 0) + 1,
       updatedAt: new Date()
     }
   });
@@ -52,7 +55,7 @@ export async function incrementAiUsage(ownerType, ownerId) {
   return prisma.usageLimit.update({
     where: { id: usage.id },
     data: {
-      aiGenerations: usage.aiGenerations + 1,
+      aiGenerations: (usage.aiGenerations ?? 0) + 1,
       updatedAt: new Date()
     }
   });
