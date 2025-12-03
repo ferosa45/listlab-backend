@@ -161,43 +161,22 @@ app.post(
   "/api/generate",
   authMiddleware,
   licenseContext,
-  checkWorksheetLimit,
-  checkAiLimit,
   async (req, res) => {
     const { topic, level } = req.body;
-    const { ownerType, ownerId } = req.license;
 
-    console.log(">>> GENERATE START");
-    console.log("LICENSE:", req.license);
-    console.log("OWNER:", ownerType, ownerId);
+    await prisma.worksheetLog.create({
+      data: {
+        userId: req.user.id,
+        topic: topic || "(nezadáno)",
+        level: level || "1",
+      },
+    });
 
-    try {
-      await incrementWorksheetUsage(ownerType, ownerId);
-      console.log(">>> WORKSHEET USAGE UPDATED");
-
-      await incrementAiUsage(ownerType, ownerId);
-      console.log(">>> AI USAGE UPDATED");
-
-      await prisma.worksheetLog.create({
-        data: {
-          userId: req.user.id,
-          topic: topic || "(nezadáno)",
-          level: level || "1",
-        },
-      });
-
-      console.log(">>> WORKSHEET LOGGED");
-
-      res.json({
-        ok: true,
-        result: generateMockContent(topic, level),
-        license: req.license,
-      });
-
-    } catch (err) {
-      console.error("GENERATE ERROR:", err);
-      res.status(500).json({ ok: false, error: "Generation failed" });
-    }
+    res.json({
+      ok: true,
+      result: generateMockContent(topic, level),
+      license: req.license,
+    });
   }
 );
 
