@@ -1,40 +1,39 @@
-// server/services/subscriptionService.js
-import db from '../db.js'; 
-// db je tvůj pool/klient, podle toho jak to máš v projektu. Pokud ne, upravíme.
+// api/src/services/subscriptionService.js
+import { PrismaClient } from "@prisma/client";
 
+const prisma = new PrismaClient();
 
 /**
- * Vrátí aktivní subscription podle toho,
- * jestli je user samostatný, nebo člen školy.
- * 
- * @param {Object} user - objekt přihlášeného uživatele
+ * Vrátí aktivní subscription pro uživatele nebo školu.
+ * Pokud user.schoolId existuje → používá školní subscription.
+ *
+ * @param {Object} user - uživatel z authMiddleware
  * @returns {Promise<Object|null>}
  */
 export async function getActiveSubscriptionForUserOrSchool(user) {
-  let ownerType, ownerId;
+  let ownerType;
+  let ownerId;
 
-  // pokud má user.school_id → patří do školního plánu
-  if (user.school_id) {
-    ownerType = 'school';
-    ownerId = user.school_id;
+  if (user.schoolId) {
+    ownerType = "school";
+    ownerId = user.schoolId;
   } else {
-    ownerType = 'user';
+    ownerType = "user";
     ownerId = user.id;
   }
 
-  const result = await db.query(
-    `
-    SELECT *
-    FROM subscriptions
-    WHERE owner_type = $1
-      AND owner_id = $2
-      AND is_active = TRUE
-      AND (valid_to IS NULL OR valid_to > NOW())
-    ORDER BY valid_from DESC
-    LIMIT 1
-    `,
-    [ownerType, ownerId]
-  );
+ const subscription = await prisma.subscription.findFirst({
+  where: {
+    ownerType,
+    ownerId,
+    isActive: true,
+    OR: [
+      { validTo: null },
+      { validTo: { gt: new Date() } }
+    ]
+  },
+  orderBy: { validFrom: "desc" }
+});
 
-  return result.rows[0] || null;
+  return subscription ?? null;
 }
