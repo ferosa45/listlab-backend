@@ -1,0 +1,73 @@
+// api/src/config/entitlements.js
+
+export const ENTITLEMENTS = {
+  FREE: {
+    maxWorksheetsPerMonth: 3,
+    maxAiGenerationsPerDay: 1,
+    templates: "basic_only",
+    pdfWatermark: true,
+    exportPng: false,
+    folders: false,
+    libraryAccess: false,
+    teacherVersion: false,
+    prioritySupport: false,
+    seats: 1,
+    sharedFolders: false,
+  },
+
+  PRO_MONTHLY: {
+    maxWorksheetsPerMonth: Infinity,
+    maxAiGenerationsPerDay: Infinity,
+    templates: "all",
+    pdfWatermark: false,
+    exportPng: true,
+    folders: true,
+    libraryAccess: true,
+    teacherVersion: true,
+    prioritySupport: true,
+    seats: 1,
+    sharedFolders: false,
+  },
+
+  PRO_YEARLY: {
+    maxWorksheetsPerMonth: Infinity,
+    maxAiGenerationsPerDay: Infinity,
+    templates: "all",
+    pdfWatermark: false,
+    exportPng: true,
+    folders: true,
+    libraryAccess: true,
+    teacherVersion: true,
+    prioritySupport: true,
+    seats: 1,
+    sharedFolders: false,
+  },
+
+  TEAM_MONTHLY: {
+    maxWorksheetsPerMonth: Infinity,
+    maxAiGenerationsPerDay: Infinity,
+    templates: "all",
+    pdfWatermark: false,
+    exportPng: true,
+    folders: true,
+    libraryAccess: true,
+    teacherVersion: true,
+    prioritySupport: true,
+    seats: 10,
+    sharedFolders: true,
+  },
+
+  TEAM_YEARLY: {
+    maxWorksheetsPerMonth: Infinity,
+    maxAiGenerationsPerDay: Infinity,
+    templates: "all",
+    pdfWatermark: false,
+    exportPng: true,
+    folders: true,
+    libraryAccess: true,
+    teacherVersion: true,
+    prioritySupport: true,
+    seats: 10,
+    sharedFolders: true,
+  },
+};
