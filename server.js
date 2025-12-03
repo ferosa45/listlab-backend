@@ -1,3 +1,4 @@
+// api/server.js
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
@@ -10,6 +11,11 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { body, validationResult } from "express-validator";
+import bodyParser from "body-parser";
+
+import { licenseContext } from "./src/middleware/licenseContext.js";
+import { getActiveSubscriptionForUserOrSchool } from "./src/services/subscriptionService.js";
+import { ENTITLEMENTS } from "./src/config/entitlements.js";
 
 dotenv.config();
 
@@ -22,7 +28,7 @@ const app = express();
 const prisma = new PrismaClient();
 
 // Config
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3001;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 
@@ -35,6 +41,7 @@ app.use(
 );
 app.use(express.json());
 app.use(cookieParser());
+app.use(bodyParser.json());
 
 // ---------- HEALTHCHECK ----------
 app.get("/api/health", (req, res) => {
@@ -160,14 +167,16 @@ function generateMockContent(topic, level) {
 }
 
 // ----------- GENERATE + LOGGING -----------
-app.post("/api/generate", authMiddleware, async (req, res) => {
+// Přidáno licenseContext middleware (KROK 2)
+app.post("/api/generate", authMiddleware, licenseContext, async (req, res) => {
   const { topic, level } = req.body;
 
-  // 1) Zapsat worksheet log do DB
+  // req.license je nyní dostupné
+  // můžeš zde později přidat checky pro limits (KROK 3)
   try {
     await prisma.worksheetLog.create({
       data: {
-        userId: req.user.id,        // ✔ uživatelská ID se bere z middleware
+        userId: req.user.id,
         topic: topic || "(nezadáno)",
         level: level || "1",
       },
@@ -176,13 +185,47 @@ app.post("/api/generate", authMiddleware, async (req, res) => {
     console.error("WorksheetLog error:", err);
   }
 
-  // 2) Vrátit generovaný obsah
+  // Odpověď teď vrací i info o licenci (pro debug/FE)
   res.json({
     ok: true,
     result: generateMockContent(topic, level),
+    license: req.license,
   });
 });
 
+// ---------- DEBUG: ověření načtení licence ----------
+app.get("/api/debug/sub", authMiddleware, licenseContext, (req, res) => {
+  return res.json({
+    ok: true,
+    license: req.license,
+  });
+});
+
+// ---------- GET /api/me/license ----------
+app.get("/api/me/license", authMiddleware, async (req, res) => {
+  try {
+    const sub = await getActiveSubscriptionForUserOrSchool(req.user);
+    const planCode = sub?.plan_code ?? "FREE";
+    const entitlements = ENTITLEMENTS[planCode] ?? ENTITLEMENTS.FREE;
+
+    // TODO: doplníme usageService později
+    const usageThisMonth = null;
+
+    return res.json({
+      ok: true,
+      planCode,
+      billingPeriod: sub?.billing_period ?? null,
+      validFrom: sub?.valid_from ?? null,
+      validTo: sub?.valid_to ?? null,
+      entitlements,
+      subscription: sub ?? null,
+      usageThisMonth,
+    });
+  } catch (err) {
+    console.error("GET /api/me/license error:", err);
+    return res.status(500).json({ ok: false, error: "Failed to load license" });
+  }
+});
 
 // ----------- PDF -----------
 const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
@@ -230,35 +273,9 @@ app.post("/api/admin/set-role", authMiddleware, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- STATS ----------
+// ---------- ADMIN STATS (sloučeno, jediný endpoint) ----------
 app.get("/api/admin/stats", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
-
-  const totalUsers = await prisma.user.count();
-  const newUsers = await prisma.user.count({
-    where: { createdAt: { gte: new Date(Date.now() - 7*24*60*60*1000) } }
-  });
-
-  const totalWorksheets = await prisma.worksheetLog.count();
-  const monthlyWorksheets = await prisma.worksheetLog.count({
-    where: { createdAt: { gte: new Date(Date.now() - 30*24*60*60*1000) } }
-  });
-
-  res.json({
-    ok: true,
-    stats: {
-      totalUsers,
-      newUsers,
-      totalWorksheets,
-      monthlyWorksheets
-    }
-  });
-});
-
-// ---------- ADMIN STATS ----------
-app.get("/api/admin/stats", authMiddleware, async (req, res) => {
-  if (req.user.role !== "ADMIN")
-    return res.status(403).json({ error: "Forbidden" });
 
   const teachers = await prisma.user.count({ where: { role: "TEACHER" } });
   const admins = await prisma.user.count({ where: { role: "ADMIN" } });
@@ -291,7 +308,6 @@ app.get("/api/admin/stats", authMiddleware, async (req, res) => {
     },
   });
 });
-
 
 // ---------- SCHOOLS ----------
 app.get("/api/admin/schools", authMiddleware, async (req, res) => {
