@@ -50,16 +50,15 @@ model Subscription {
 }
 
 model UsageLimit {
-  id               String   @id @default(uuid())
-  ownerType        String   // 'user' | 'school'
-  ownerId          String
-  year             Int
-  month            Int
-  worksheetsCount  Int      @default(0)
-  aiGenerations    Int      @default(0)
-  updatedAt        DateTime @updatedAt
+  id              String   @id @default(uuid())
+  ownerType       String
+  ownerId         String
+  year            Int
+  month           Int
+  worksheetsCount Int      @default(0)
+  aiGenerations   Int      @default(0)
+  updatedAt       DateTime @updatedAt
 }
-
 
 model WorksheetLog {
   id        String   @id @default(uuid())

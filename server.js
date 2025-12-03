@@ -11,7 +11,6 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { body, validationResult } from "express-validator";
-import bodyParser from "body-parser";
 
 import { licenseContext } from "./src/middleware/licenseContext.js";
 import { getActiveSubscriptionForUserOrSchool } from "./src/services/subscriptionService.js";
@@ -31,6 +30,7 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
+const NODE_ENV = process.env.NODE_ENV || "development";
 
 // Middleware
 app.use(
@@ -39,46 +39,33 @@ app.use(
     credentials: true,
   })
 );
+
 app.use(express.json());
 app.use(cookieParser());
-app.use(bodyParser.json());
 
-// ---------- HEALTHCHECK ----------
-app.get("/api/health", (req, res) => {
-  return res.status(200).json({
-    ok: true,
-    message: "Health OK",
-    time: new Date().toISOString(),
-  });
-});
-
-// Root
-app.get("/", (req, res) => {
-  res.send("ListLab backend running ✔");
-});
-
-// Helpers
-function signToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
-}
-
+// ---------- COOKIE HELPERS ----------
 function setAuthCookie(res, token) {
+  const isProd = NODE_ENV === "production";
+
   res.cookie("token", token, {
     httpOnly: true,
-    secure: true,
-    sameSite: "None",
+    secure: isProd ? true : false,
+    sameSite: isProd ? "None" : "Lax",
     path: "/",
   });
 }
 
 function clearAuthCookie(res) {
+  const isProd = NODE_ENV === "production";
+
   res.clearCookie("token", {
-    secure: true,
-    sameSite: "None",
+    secure: isProd ? true : false,
+    sameSite: isProd ? "None" : "Lax",
     path: "/",
   });
 }
 
+// ---------- AUTH MIDDLEWARE ----------
 function authMiddleware(req, res, next) {
   try {
     const token =
@@ -92,7 +79,21 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// ----------- AUTH -----------
+// ---------- HEALTHCHECK ----------
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    ok: true,
+    message: "Health OK",
+    time: new Date().toISOString(),
+  });
+});
+
+// Root
+app.get("/", (_req, res) => {
+  res.send("ListLab backend running ✔");
+});
+
+// ---------- AUTH ----------
 app.post(
   "/api/auth/register",
   body("email").isEmail(),
@@ -113,14 +114,13 @@ app.post(
       data: { email, password: hashed, role: "TEACHER" },
     });
 
-    const token = signToken({
-      id: newUser.id,
-      email: newUser.email,
-      role: newUser.role,
-    });
+    const token = jwt.sign(
+      { id: newUser.id, email: newUser.email, role: newUser.role },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
     setAuthCookie(res, token);
-
     res.json({ ok: true, user: newUser });
   }
 );
@@ -134,15 +134,14 @@ app.post("/api/auth/login", async (req, res) => {
   const match = await bcrypt.compare(password, user.password);
   if (!match) return res.status(400).json({ error: "Invalid credentials" });
 
-  const token = signToken({
-    id: user.id,
-    email: user.email,
-    role: user.role,
-  });
+  const token = jwt.sign(
+    { id: user.id, email: user.email, role: user.role },
+    JWT_SECRET,
+    { expiresIn: "7d" }
+  );
 
   setAuthCookie(res, token);
-
-  return res.json({ ok: true, user });
+  res.json({ ok: true, user });
 });
 
 app.get("/api/auth/me", authMiddleware, async (req, res) => {
@@ -154,25 +153,21 @@ app.get("/api/auth/me", authMiddleware, async (req, res) => {
   res.json({ ok: true, user });
 });
 
-app.post("/api/auth/logout", (req, res) => {
+app.post("/api/auth/logout", (_req, res) => {
   clearAuthCookie(res);
   res.json({ ok: true });
 });
 
-// ----------- GENERATOR (LOG WORKSHEET) -----------
+// ---------- GENERATOR ----------
 function generateMockContent(topic, level) {
   return `Téma: ${topic}\nRočník: ${
     level === "1" ? "1. stupeň" : "2. stupeň"
   }`;
 }
 
-// ----------- GENERATE + LOGGING -----------
-// Přidáno licenseContext middleware (KROK 2)
 app.post("/api/generate", authMiddleware, licenseContext, async (req, res) => {
   const { topic, level } = req.body;
 
-  // req.license je nyní dostupné
-  // můžeš zde později přidat checky pro limits (KROK 3)
   try {
     await prisma.worksheetLog.create({
       data: {
@@ -185,7 +180,6 @@ app.post("/api/generate", authMiddleware, licenseContext, async (req, res) => {
     console.error("WorksheetLog error:", err);
   }
 
-  // Odpověď teď vrací i info o licenci (pro debug/FE)
   res.json({
     ok: true,
     result: generateMockContent(topic, level),
@@ -193,12 +187,9 @@ app.post("/api/generate", authMiddleware, licenseContext, async (req, res) => {
   });
 });
 
-// ---------- DEBUG: ověření načtení licence ----------
+// ---------- LICENSE DEBUG ----------
 app.get("/api/debug/sub", authMiddleware, licenseContext, (req, res) => {
-  return res.json({
-    ok: true,
-    license: req.license,
-  });
+  res.json({ ok: true, license: req.license });
 });
 
 // ---------- GET /api/me/license ----------
@@ -208,10 +199,7 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
     const planCode = sub?.plan_code ?? "FREE";
     const entitlements = ENTITLEMENTS[planCode] ?? ENTITLEMENTS.FREE;
 
-    // TODO: doplníme usageService později
-    const usageThisMonth = null;
-
-    return res.json({
+    res.json({
       ok: true,
       planCode,
       billingPeriod: sub?.billing_period ?? null,
@@ -219,15 +207,15 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
       validTo: sub?.valid_to ?? null,
       entitlements,
       subscription: sub ?? null,
-      usageThisMonth,
+      usageThisMonth: null,
     });
   } catch (err) {
-    console.error("GET /api/me/license error:", err);
-    return res.status(500).json({ ok: false, error: "Failed to load license" });
+    console.error("/api/me/license error:", err);
+    res.status(500).json({ ok: false, error: "Failed to load license" });
   }
 });
 
-// ----------- PDF -----------
+// ---------- PDF ----------
 const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
 
 app.post("/api/pdf", (req, res) => {
@@ -243,7 +231,6 @@ app.post("/api/pdf", (req, res) => {
   doc.fontSize(20).text(topic, { align: "center" });
   doc.moveDown();
   doc.fontSize(12).text(generateMockContent(topic, level));
-
   doc.end();
 });
 
@@ -253,7 +240,7 @@ app.get("/api/admin/users", authMiddleware, async (req, res) => {
     return res.status(403).json({ error: "Forbidden" });
 
   const users = await prisma.user.findMany({
-    select: { id: true, email: true, role: true, createdAt: true, schoolId: true }
+    select: { id: true, email: true, role: true, createdAt: true, schoolId: true },
   });
 
   res.json({ ok: true, users });
@@ -273,58 +260,69 @@ app.post("/api/admin/set-role", authMiddleware, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- ADMIN STATS (sloučeno, jediný endpoint) ----------
+// ---------- ADMIN STATS (FINAL CORRECT VERSION) ----------
 app.get("/api/admin/stats", authMiddleware, async (req, res) => {
-  if (req.user.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
+  if (req.user.role !== "ADMIN")
+    return res.status(403).json({ error: "Forbidden" });
 
-  const teachers = await prisma.user.count({ where: { role: "TEACHER" } });
-  const admins = await prisma.user.count({ where: { role: "ADMIN" } });
-  const schools = await prisma.school.count();
-  const worksheets = await prisma.worksheet.count();
+  try {
+    const totalUsers = await prisma.user.count();
+    const teachers = await prisma.user.count({ where: { role: "TEACHER" } });
+    const admins = await prisma.user.count({ where: { role: "ADMIN" } });
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+    const schools = await prisma.school.count();
+    const totalWorksheetLogs = await prisma.worksheetLog.count();
 
-  const week = new Date();
-  week.setDate(week.getDate() - 7);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  const logsToday = await prisma.worksheetLog.count({
-    where: { createdAt: { gte: today } }
-  });
+    const week = new Date();
+    week.setDate(week.getDate() - 7);
 
-  const logsWeek = await prisma.worksheetLog.count({
-    where: { createdAt: { gte: week } }
-  });
+    const logsToday = await prisma.worksheetLog.count({
+      where: { createdAt: { gte: today } },
+    });
 
-  res.json({
-    ok: true,
-    stats: {
-      teachers,
-      admins,
-      schools,
-      worksheets,
-      logsToday,
-      logsWeek,
-    },
-  });
+    const logsWeek = await prisma.worksheetLog.count({
+      where: { createdAt: { gte: week } },
+    });
+
+    res.json({
+      ok: true,
+      stats: {
+        totalUsers,
+        teachers,
+        admins,
+        schools,
+        totalWorksheetLogs,
+        logsToday,
+        logsWeek,
+      },
+    });
+  } catch (err) {
+    console.error("ADMIN /stats error:", err);
+    res.status(500).json({ error: "Failed to load admin stats" });
+  }
 });
 
 // ---------- SCHOOLS ----------
 app.get("/api/admin/schools", authMiddleware, async (req, res) => {
-  if (req.user.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
+  if (req.user.role !== "ADMIN")
+    return res.status(403).json({ error: "Forbidden" });
 
   const schools = await prisma.school.findMany({
     include: {
       license: true,
-      users: true
-    }
+      users: true,
+    },
   });
 
   res.json({ ok: true, schools });
 });
 
 app.post("/api/admin/schools", authMiddleware, async (req, res) => {
-  if (req.user.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
+  if (req.user.role !== "ADMIN")
+    return res.status(403).json({ error: "Forbidden" });
 
   const { name, licenseType } = req.body;
 
@@ -333,11 +331,11 @@ app.post("/api/admin/schools", authMiddleware, async (req, res) => {
       name,
       license: {
         create: {
-          type: licenseType || "FREE"
-        }
-      }
+          type: licenseType || "FREE",
+        },
+      },
     },
-    include: { license: true }
+    include: { license: true },
   });
 
   res.json({ ok: true, school });
@@ -345,12 +343,13 @@ app.post("/api/admin/schools", authMiddleware, async (req, res) => {
 
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
-  if (req.user.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
+  if (req.user.role !== "ADMIN")
+    return res.status(403).json({ error: "Forbidden" });
 
   const logs = await prisma.worksheetLog.findMany({
     include: { user: true },
     orderBy: { createdAt: "desc" },
-    take: 200
+    take: 200,
   });
 
   res.json({ ok: true, logs });
