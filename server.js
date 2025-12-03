@@ -173,7 +173,7 @@ app.post(
     try {
       const { topic, level } = req.body;
 
-      // --- LOG WORKSHEET ---
+      // Log
       await prisma.worksheetLog.create({
         data: {
           userId: req.user.id,
@@ -182,7 +182,7 @@ app.post(
         },
       });
 
-      // --- USAGE INCREMENT ---
+      // Usage increment
       await incrementWorksheetUsage(req.license.ownerType, req.license.ownerId);
       await incrementAiUsage(req.license.ownerType, req.license.ownerId);
 
@@ -194,7 +194,7 @@ app.post(
 
     } catch (err) {
       console.error("/api/generate ERROR:", err);
-      return res.status(500).json({ ok: false, error: "Generate failed" });
+      res.status(500).json({ ok: false, error: "Generate failed" });
     }
   }
 );
@@ -229,21 +229,66 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
 // ---------- PDF ----------
 const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
 
-app.post("/api/pdf", (req, res) => {
-  const { topic, level } = req.body;
-  const doc = new PDFDocument();
+// ---------- PDF (chráněno licencí + limity) ----------
+app.post(
+  "/api/pdf",
+  authMiddleware,
+  licenseContext,
+  async (req, res) => {
+    try {
+      const { topic, level } = req.body;
 
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", "attachment; filename=listlab.pdf");
+      // FREE: kontrola limitů, ale NE zvýšení usage
+      if (req.license.planCode === "FREE") {
 
-  doc.pipe(res);
-  if (fs.existsSync(FONT_PATH)) doc.font(FONT_PATH);
+        const { checkWorksheetLimit, checkAiLimit } = await import("./src/middleware/usageLimits.js");
 
-  doc.fontSize(20).text(topic, { align: "center" });
-  doc.moveDown();
-  doc.fontSize(12).text(generateMockContent(topic, level));
-  doc.end();
-});
+        // Ručně zavoláme oba limity, ale bez incrementů
+        // (PDF není nová generace, jen export)
+        const fakeReq = { ...req };
+        const fakeRes = {
+          status: (code) => ({
+            json: (data) => {
+              throw { code, ...data };
+            },
+          }),
+        };
+
+        // Tyto middleware vyhodí error, pokud byl limit překročen
+        await checkWorksheetLimit(fakeReq, fakeRes, () => {});
+        await checkAiLimit(fakeReq, fakeRes, () => {});
+      }
+
+      // PDF generace
+      const doc = new PDFDocument();
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=listlab.pdf");
+
+      doc.pipe(res);
+
+      if (fs.existsSync(FONT_PATH)) doc.font(FONT_PATH);
+
+      doc.fontSize(20).text(topic, { align: "center" });
+      doc.moveDown();
+      doc.fontSize(12).text(generateMockContent(topic, level));
+
+      doc.end();
+
+    } catch (err) {
+      console.error("PDF error:", err);
+
+      if (err.error === "WORKSHEET_LIMIT_REACHED") {
+        return res.status(429).json(err);
+      }
+      if (err.error === "AI_LIMIT_REACHED") {
+        return res.status(429).json(err);
+      }
+
+      return res.status(500).json({ ok: false, error: "PDF_GENERATION_FAILED" });
+    }
+  }
+);
+
 
 // ---------- ADMIN ----------
 app.get("/api/admin/users", authMiddleware, async (req, res) => {
