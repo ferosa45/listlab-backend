@@ -431,6 +431,38 @@ app.get("/api/admin/stats", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------- ADMIN: Reset limitů ----------
+app.post("/api/admin/reset-limits", authMiddleware, async (req, res) => {
+  if (req.user.role !== "ADMIN") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const { userId } = req.body; 
+  // userId = reset jen jednomu uživateli
+  // bez userId = reset všem
+
+  try {
+    if (userId) {
+      // reset pro 1 uživatele
+      await prisma.usageLimit.deleteMany({
+        where: { ownerType: "user", ownerId: userId }
+      });
+
+      return res.json({ ok: true, message: "Limity uživatele resetovány." });
+    }
+
+    // reset všem uživatelům
+    await prisma.usageLimit.deleteMany({});
+
+    res.json({ ok: true, message: "Všechny limity byly resetovány." });
+
+  } catch (err) {
+    console.error("RESET LIMITS ERROR:", err);
+    res.status(500).json({ ok: false, error: "Reset selhal." });
+  }
+});
+
+
 // ---------- SCHOOLS ----------
 app.get("/api/admin/schools", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
