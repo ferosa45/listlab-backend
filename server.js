@@ -211,7 +211,7 @@ app.post(
             ? usageAfterAi.aiGenerations
             : 0;
 
-        aiRemaining = Math.max(allowed - usedToday, 0);
+        aiRemaining = Math.max(10 - usedToday, 0);
       }
 
       // 4) Odpověď
@@ -282,11 +282,11 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
         aiRemaining = Math.max(allowedAi - usedToday, 0);
 
         // ---- Worksheet limit 3 / měsíc ----
-        worksheetsRemaining = Math.max(3 - usage.worksheetsCount, 0);
+        worksheetsRemaining = Math.max(30 - usage.worksheetsCount, 0);
       } else {
         // Usage record ještě neexistuje
-        aiRemaining = 1;
-        worksheetsRemaining = 3;
+        aiRemaining = 10;
+        worksheetsRemaining = 30;
       }
     }
 

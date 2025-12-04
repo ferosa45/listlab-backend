@@ -21,7 +21,7 @@ export async function checkWorksheetLimit(req, res, next) {
   const usage = await getOrCreateUsageRecord(ownerType, ownerId);
 
   const used = usage?.worksheetsCount ?? 0;
-  const allowed = 3; // FREE plan
+  const allowed = 30; // FREE plan
 
   if (used >= allowed) {
     return res.status(429).json({
@@ -56,7 +56,7 @@ export async function checkAiLimit(req, res, next) {
   const usage = await getOrCreateUsageRecord(ownerType, ownerId);
 
   const usedToday = usage?.aiGenerations ?? 0;
-  const allowedPerDay = 1;
+  const allowedPerDay = 10;
 
   // Normalizace datumu
   const today = new Date();
