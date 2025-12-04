@@ -509,6 +509,60 @@ app.post("/api/admin/schools", authMiddleware, async (req, res) => {
   res.json({ ok: true, school });
 });
 
+// ---------- STRIPE CHECKOUT ----------
+import Stripe from "stripe";
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+// Vytvoření checkout session
+app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res) => {
+  try {
+    const { priceId, planCode, billingPeriod } = req.body;
+
+    if (!priceId) {
+      return res.status(400).json({ error: "Missing priceId" });
+    }
+
+    const user = req.user;
+
+    // Určení vlastníka (user nebo school)
+    const ownerType = user.schoolId ? "SCHOOL" : "USER";
+    const ownerId = user.schoolId || user.id;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      metadata: {
+        ownerType,
+        ownerId,
+        planCode,
+        billingPeriod: billingPeriod || "month",
+      },
+      subscription_data: {
+        metadata: {
+          ownerType,
+          ownerId,
+          planCode,
+          billingPeriod: billingPeriod || "month",
+        },
+      },
+      success_url: `${process.env.FRONTEND_ORIGIN}/billing/success`,
+      cancel_url: `${process.env.FRONTEND_ORIGIN}/billing/cancel`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error("Checkout session error:", err);
+    res.status(500).json({ error: "Failed to create checkout session" });
+  }
+});
+
+
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
