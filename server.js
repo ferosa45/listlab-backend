@@ -240,28 +240,33 @@ app.get("/api/debug/sub", authMiddleware, licenseContext, (req, res) => {
 // ---------- LICENSE ----------
 app.get("/api/me/license", authMiddleware, async (req, res) => {
   try {
+    // 1) Subscription (pokud existuje)
     const sub = await getActiveSubscriptionForUserOrSchool(req.user);
     const planCode = sub?.plan_code ?? "FREE";
     const entitlements = ENTITLEMENTS[planCode] ?? ENTITLEMENTS.FREE;
 
-    const ownerType = sub?.ownerType || (req.user.schoolId ? "school" : "user");
-    const ownerId = sub?.ownerId || req.user.id;
+    // 2) Určení vlastníka licence (user nebo school)
+    const ownerType = req.user.schoolId ? "school" : "user";
+    const ownerId = req.user.schoolId || req.user.id;
+
+    // 3) Najdeme usage záznam
+    const now = new Date();
+    const usage = await prisma.usageLimit.findFirst({
+      where: {
+        ownerType,
+        ownerId,
+        year: now.getFullYear(),
+        month: now.getMonth() + 1
+      }
+    });
 
     let aiRemaining = null;
     let worksheetsRemaining = null;
 
-    // ---- FREE limits ----
     if (planCode === "FREE") {
-      const usage = await prisma.usageLimit.findFirst({
-        where: {
-          ownerType,
-          ownerId,
-          year: new Date().getFullYear(),
-          month: new Date().getMonth() + 1
-        }
-      });
+      // ---- AI limit 1× denně ----
+      const allowedAi = 1;
 
-      // AI limit today (1/day)
       if (usage) {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -269,15 +274,17 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
         const updated = new Date(usage.updatedAt);
         updated.setHours(0, 0, 0, 0);
 
-        const usedToday = today.getTime() === updated.getTime()
-          ? usage.aiGenerations
-          : 0;
+        const usedToday =
+          today.getTime() === updated.getTime()
+            ? usage.aiGenerations
+            : 0;
 
-        aiRemaining = Math.max(1 - usedToday, 0);
+        aiRemaining = Math.max(allowedAi - usedToday, 0);
 
-        // worksheet limit (3/month)
+        // ---- Worksheet limit 3 / měsíc ----
         worksheetsRemaining = Math.max(3 - usage.worksheetsCount, 0);
       } else {
+        // Usage record ještě neexistuje
         aiRemaining = 1;
         worksheetsRemaining = 3;
       }
@@ -286,13 +293,8 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
     res.json({
       ok: true,
       planCode,
-      billingPeriod: sub?.billing_period ?? null,
-      validFrom: sub?.valid_from ?? null,
-      validTo: sub?.valid_to ?? null,
       entitlements,
       subscription: sub ?? null,
-
-      // new
       aiRemaining,
       worksheetsRemaining
     });
@@ -302,7 +304,6 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
     res.status(500).json({ ok: false, error: "Failed to load license" });
   }
 });
-
 
 
 // ---------- PDF ----------
