@@ -1,7 +1,9 @@
+// routes/stripeWebhook.js
 import express from 'express'
 import Stripe from 'stripe'
-import prisma from '../prisma.js'
+import { PrismaClient } from '@prisma/client'
 
+const prisma = new PrismaClient()
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 const router = express.Router()
 
@@ -91,7 +93,6 @@ async function syncSubscription(subscription) {
 /* ---------------- OWNER LOGIC ---------------- */
 
 async function updateOwnerStatus(data) {
-  const isActive = ['active', 'trialing'].includes(data.status)
 
   if (data.ownerType === 'USER') {
     await prisma.user.update({
