@@ -230,55 +230,68 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
 const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
 
 // ---------- PDF (chráněno licencí + worksheet limitem) ----------
-app.post(
-  "/api/pdf",
-  authMiddleware,
-  licenseContext,
-  async (req, res) => {
-    try {
-      const { topic, level } = req.body;
+// ---------- PDF ----------
+app.post("/api/pdf", authMiddleware, licenseContext, async (req, res) => {
+  try {
+    const { topic, level } = req.body;
 
-      // FREE: kontrola pouze worksheet limitu (NE AI limitu)
-      if (req.license.planCode === "FREE") {
-        const fakeReq = req;
-        const fakeRes = {
-          status: (code) => ({
-            json: (data) => {
-              throw { error: data.error, message: data.message, code };
-            },
-          }),
-        };
-
-        // AI limit se u PDF NEKONTROLUJE
-        await checkWorksheetLimit(fakeReq, fakeRes, () => {});
-      }
-
-      // --- Generování PDF ---
-      const doc = new PDFDocument();
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", "attachment; filename=listlab.pdf");
-
-      doc.pipe(res);
-      if (fs.existsSync(FONT_PATH)) doc.font(FONT_PATH);
-
-      doc.fontSize(20).text(topic, { align: "center" });
-      doc.moveDown();
-      doc.fontSize(12).text(generateMockContent(topic, level));
-      doc.end();
-
-    } catch (err) {
-      console.error("PDF error:", err);
-
-      if (err.error === "WORKSHEET_LIMIT_REACHED") {
-        return res.status(429).json(err);
-      }
-
-      return res.status(500).json({ ok: false, error: "PDF_GENERATION_FAILED" });
+    if (!topic || !level) {
+      return res.status(400).json({
+        ok: false,
+        error: "INVALID_REQUEST",
+        message: "Topic a level jsou povinné."
+      });
     }
+
+    // ------------------------------------------------------
+    // 🔒 FREE user musí mít existující generaci (náhled)
+    // ------------------------------------------------------
+    if (req.license.planCode === "FREE") {
+      const lastGenerated = await prisma.worksheetLog.findFirst({
+        where: {
+          userId: req.user.id,
+          topic,
+          level
+        }
+      });
+
+      if (!lastGenerated) {
+        return res.status(400).json({
+          ok: false,
+          error: "NO_PREVIEW",
+          message: "Nejdříve si zobrazte náhled pracovního listu."
+        });
+      }
+    }
+
+    // ------------------------------------------------------
+    // 📝 Vytvoření PDF (žák / učitel)
+    // ------------------------------------------------------
+    const doc = new PDFDocument();
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=listlab.pdf");
+    doc.pipe(res);
+
+    const FONT_PATH = path.join(__dirname, "fonts", "DejaVuSans.ttf");
+    if (fs.existsSync(FONT_PATH)) doc.font(FONT_PATH);
+
+    doc.fontSize(20).text(topic, { align: "center" });
+    doc.moveDown();
+
+    doc.fontSize(12).text(
+      `Téma: ${topic}\nRočník: ${level === "1" ? "1. stupeň" : "2. stupeň"}`
+    );
+
+    doc.end();
+  } catch (err) {
+    console.error("PDF error:", err);
+    res.status(500).json({
+      ok: false,
+      error: "PDF_ERROR",
+      message: "Chyba serveru při generování PDF."
+    });
   }
-);
-
-
+});
 
 
 // ---------- ADMIN ----------
