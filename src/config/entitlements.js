@@ -2,8 +2,8 @@
 
 export const ENTITLEMENTS = {
   FREE: {
-    maxWorksheetsPerMonth: 3,
-    maxAiGenerationsPerDay: 1,
+    maxWorksheetsPerMonth: 30,
+    maxAiGenerationsPerDay: 10,
     templates: "basic_only",
     pdfWatermark: true,
     exportPng: false,
