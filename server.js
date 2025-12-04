@@ -11,6 +11,8 @@ import path from "path";
 import fs from "fs";
 import { body, validationResult } from "express-validator";
 import { fileURLToPath } from "url";
+import stripeWebhookRouter from './routes/stripeWebhook.js'
+import billingRouter from './routes/billing.js'
 
 // ---------- CUSTOM SERVICES & MIDDLEWARE ----------
 import { licenseContext } from "./src/middleware/licenseContext.js";
@@ -45,6 +47,9 @@ app.use(
     credentials: true,
   })
 );
+
+// ✅ STRIPE WEBHOOK – MUSÍ BÝT PŘED express.json()
+app.use('/webhooks/stripe', stripeWebhookRouter)
 
 app.use(express.json());
 app.use(cookieParser());
@@ -240,16 +245,18 @@ app.get("/api/debug/sub", authMiddleware, licenseContext, (req, res) => {
 // ---------- LICENSE ----------
 app.get("/api/me/license", authMiddleware, async (req, res) => {
   try {
-    // 1) Subscription (pokud existuje)
-    const sub = await getActiveSubscriptionForUserOrSchool(req.user);
-    const planCode = sub?.plan_code ?? "FREE";
+    const user = req.user;
+
+    // 1) Zjistíme aktivní subscription
+    const sub = await getActiveSubscriptionForUserOrSchool(user);
+    const planCode = sub?.planCode ?? "FREE";
     const entitlements = ENTITLEMENTS[planCode] ?? ENTITLEMENTS.FREE;
 
-    // 2) Určení vlastníka licence (user nebo school)
-    const ownerType = req.user.schoolId ? "school" : "user";
-    const ownerId = req.user.schoolId || req.user.id;
+    // 2) Určení vlastníka (USER/SCHOOL)
+    const ownerType = user.schoolId ? "SCHOOL" : "USER";
+    const ownerId = user.schoolId || user.id;
 
-    // 3) Najdeme usage záznam
+    // 3) Usage záznam pro aktuální měsíc
     const now = new Date();
     const usage = await prisma.usageLimit.findFirst({
       where: {
@@ -263,11 +270,15 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
     let aiRemaining = null;
     let worksheetsRemaining = null;
 
+    // ------------------------------------------------------
+    //      FREE PLAN
+    // ------------------------------------------------------
     if (planCode === "FREE") {
-      // ---- AI limit 1× denně ----
-      const allowedAi = 1;
+      const AI_LIMIT = entitlements.maxAiGenerationsPerDay;      // 10
+      const WS_LIMIT = entitlements.maxWorksheetsPerMonth;        // 30
 
       if (usage) {
+        // denní limit AI
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
@@ -279,18 +290,23 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
             ? usage.aiGenerations
             : 0;
 
-        const AI_LIMIT = ENTITLEMENTS.FREE.maxAiGenerationsPerDay;  // 10
-        
-aiRemaining = Math.max(AI_LIMIT - usedToday, 0);
+        aiRemaining = Math.max(AI_LIMIT - usedToday, 0);
 
-        // ---- Worksheet limit 30 / měsíc ----
-        const WS_LIMIT = ENTITLEMENTS.FREE.maxWorksheetsPerMonth;   // 30
+        // měsíční limit worksheets
         worksheetsRemaining = Math.max(WS_LIMIT - usage.worksheetsCount, 0);
       } else {
-        // Usage record ještě neexistuje
-        aiRemaining = 1;
-        worksheetsRemaining = 3;
+        // žádný usage záznam → full limity
+        aiRemaining = AI_LIMIT;
+        worksheetsRemaining = WS_LIMIT;
       }
+    }
+
+    // ------------------------------------------------------
+    //      PREMIUM / PAID
+    // ------------------------------------------------------
+    else {
+      aiRemaining = null;          // neomezené AI
+      worksheetsRemaining = null;  // neomezené worksheets
     }
 
     res.json({
@@ -299,7 +315,7 @@ aiRemaining = Math.max(AI_LIMIT - usedToday, 0);
       entitlements,
       subscription: sub ?? null,
       aiRemaining,
-      worksheetsRemaining
+      worksheetsRemaining,
     });
 
   } catch (err) {
@@ -307,6 +323,7 @@ aiRemaining = Math.max(AI_LIMIT - usedToday, 0);
     res.status(500).json({ ok: false, error: "Failed to load license" });
   }
 });
+
 
 
 // ---------- PDF ----------
