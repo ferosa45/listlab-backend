@@ -75,9 +75,18 @@ async function syncSubscription(subscription) {
     stripeSubscriptionId: subscription.id,
     stripePriceId: item.price.id,
     status: subscription.status,
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    currentPeriodStart: new Date(subscription.current_period_start * 1000),
-    currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+    cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
+
+    // ---------- FIX INVALID DATE ----------
+    currentPeriodStart: subscription.current_period_start
+      ? new Date(subscription.current_period_start * 1000)
+      : null,
+
+    currentPeriodEnd: subscription.current_period_end
+      ? new Date(subscription.current_period_end * 1000)
+      : null,
+    // --------------------------------------
+
     seatLimit: meta.seatLimit ? Number(meta.seatLimit) : null
   }
 
