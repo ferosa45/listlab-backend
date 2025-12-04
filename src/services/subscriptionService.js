@@ -6,34 +6,25 @@ const prisma = new PrismaClient();
 /**
  * Vrátí aktivní subscription pro uživatele nebo školu.
  * Pokud user.schoolId existuje → používá školní subscription.
- *
- * @param {Object} user - uživatel z authMiddleware
- * @returns {Promise<Object|null>}
  */
 export async function getActiveSubscriptionForUserOrSchool(user) {
-  let ownerType;
-  let ownerId;
 
-  if (user.schoolId) {
-    ownerType = "school";
-    ownerId = user.schoolId;
-  } else {
-    ownerType = "user";
-    ownerId = user.id;
-  }
+  const ownerType = user.schoolId ? "SCHOOL" : "USER"
+  const ownerId = user.schoolId || user.id
 
- const subscription = await prisma.subscription.findFirst({
-  where: {
-    ownerType,
-    ownerId,
-    isActive: true,
-    OR: [
-      { validTo: null },
-      { validTo: { gt: new Date() } }
-    ]
-  },
-  orderBy: { validFrom: "desc" }
-});
+  const now = new Date()
 
-  return subscription ?? null;
+  const subscription = await prisma.subscription.findFirst({
+    where: {
+      ownerType,
+      ownerId,
+      status: { in: ["active", "trialing"] },
+      currentPeriodEnd: { gt: now }
+    },
+    orderBy: {
+      currentPeriodEnd: "desc"
+    }
+  })
+
+  return subscription ?? null
 }

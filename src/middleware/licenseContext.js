@@ -1,3 +1,4 @@
+// api/src/middleware/licenseContext.js
 import { getActiveSubscriptionForUserOrSchool } from "../services/subscriptionService.js";
 
 export async function licenseContext(req, res, next) {
@@ -6,18 +7,16 @@ export async function licenseContext(req, res, next) {
 
     const subscription = await getActiveSubscriptionForUserOrSchool(user);
 
-    // Free plan = žádná subscription v DB
-    const planCode = subscription?.plan_code ?? "FREE";
-
-    // ENTITLEMENTS se natahuje v serveru – takže jen necháme planCode
+    // ✅ Nový model: používáme planCode (ne plan_code)
+    const planCode = subscription?.planCode ?? "FREE";
 
     // --- OWNER LOGIKA ---
-    let ownerType = "user";
+    let ownerType = "USER";
     let ownerId = user.id;
 
     // Pokud je uživatel ve škole:
     if (user.schoolId) {
-      ownerType = "school";
+      ownerType = "SCHOOL";
       ownerId = user.schoolId;
     }
 
