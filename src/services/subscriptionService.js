@@ -1,7 +1,8 @@
 // api/src/services/subscriptionService.js
 import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma.js";
 
-const prisma = new PrismaClient();
+
 
 /**
  * Safe wrapper – opravuje chybu P1017 (Server has closed the connection).

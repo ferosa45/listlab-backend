@@ -4,7 +4,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma.js";
 import PDFDocument from "pdfkit";
 import dotenv from "dotenv";
 import path from "path";
@@ -32,7 +32,7 @@ const __dirname = path.dirname(__filename);
 
 // ---------- INIT ----------
 const app = express();
-const prisma = new PrismaClient();
+
 
 // ---------- CONFIG ----------
 const PORT = process.env.PORT || 3001;
