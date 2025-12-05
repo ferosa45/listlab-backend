@@ -57,19 +57,32 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 
 async function processCheckoutSession(session) {
   const subscriptionId = session.subscription
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId)
 
+  if (!subscriptionId) {
+    console.error("⚠️ checkout.session.completed WITHOUT subscriptionId!")
+    return
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId)
   await syncSubscription(subscription)
 }
 
 async function syncSubscription(subscription) {
   const item = subscription.items.data[0]
-  const meta = subscription.metadata
+  const meta = subscription.metadata || {}
+
+  const ownerType = meta.ownerType || "USER"
+  const ownerId = meta.ownerId || null
+
+  if (!ownerId) {
+    console.error("❌ ERROR: Missing ownerId in Stripe metadata")
+    return
+  }
 
   const data = {
-    ownerType: meta.ownerType,
-    ownerId: meta.ownerId,
-    planCode: meta.planCode,
+    ownerType,
+    ownerId,
+    planCode: meta.planCode || null,
     billingPeriod: item.price.recurring.interval,
     stripeCustomerId: subscription.customer,
     stripeSubscriptionId: subscription.id,
@@ -77,7 +90,6 @@ async function syncSubscription(subscription) {
     status: subscription.status,
     cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
 
-    // ---------- FIX INVALID DATE ----------
     currentPeriodStart: subscription.current_period_start
       ? new Date(subscription.current_period_start * 1000)
       : null,
@@ -85,7 +97,6 @@ async function syncSubscription(subscription) {
     currentPeriodEnd: subscription.current_period_end
       ? new Date(subscription.current_period_end * 1000)
       : null,
-    // --------------------------------------
 
     seatLimit: meta.seatLimit ? Number(meta.seatLimit) : null
   }
@@ -102,26 +113,24 @@ async function syncSubscription(subscription) {
 /* ---------------- OWNER LOGIC ---------------- */
 
 async function updateOwnerStatus(data) {
+  const updates = {
+    subscriptionStatus: data.status,
+    subscriptionPlan: data.planCode,
+    subscriptionUntil: data.currentPeriodEnd,
+    stripeCustomerId: data.stripeCustomerId,   // ← DŮLEŽITÉ FIX
+  }
 
   if (data.ownerType === 'USER') {
     await prisma.user.update({
       where: { id: data.ownerId },
-      data: {
-        subscriptionStatus: data.status,
-        subscriptionPlan: data.planCode,
-        subscriptionUntil: data.currentPeriodEnd,
-      }
+      data: updates
     })
   }
 
   if (data.ownerType === 'SCHOOL') {
     await prisma.school.update({
       where: { id: data.ownerId },
-      data: {
-        subscriptionStatus: data.status,
-        subscriptionPlan: data.planCode,
-        subscriptionUntil: data.currentPeriodEnd,
-      }
+      data: updates
     })
   }
 }
