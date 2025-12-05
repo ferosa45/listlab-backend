@@ -1,7 +1,7 @@
 // routes/stripeWebhook.js
 import express from 'express'
 import Stripe from 'stripe'
-import { prisma } from "./lib/prisma.js"
+import { prisma } from "../src/lib/prisma.js"   // ← TOTO JE SPRÁVNĚ
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 const router = express.Router()
@@ -116,7 +116,7 @@ async function updateOwnerStatus(data) {
     subscriptionStatus: data.status,
     subscriptionPlan: data.planCode,
     subscriptionUntil: data.currentPeriodEnd,
-    stripeCustomerId: data.stripeCustomerId,   // ← DŮLEŽITÉ FIX
+    stripeCustomerId: data.stripeCustomerId,
   }
 
   if (data.ownerType === 'USER') {
