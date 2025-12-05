@@ -54,8 +54,8 @@ model Subscription {
   stripePriceId          String
   status                 String    // active, trialing, past_due, canceled
   cancelAtPeriodEnd      Boolean   @default(false)
-  currentPeriodStart     DateTime
-  currentPeriodEnd       DateTime
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
   seatLimit              Int?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
