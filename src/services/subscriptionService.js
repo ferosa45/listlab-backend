@@ -1,6 +1,6 @@
 // api/src/services/subscriptionService.js
 import { PrismaClient } from "@prisma/client";
-import { prisma } from "../lib/prisma.js";
+import { prisma } from "./lib/prisma.js"
 
 
 

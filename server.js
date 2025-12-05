@@ -4,7 +4,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { prisma } from "../lib/prisma.js";
+import { prisma } from "./src/lib/prisma.js"
 import PDFDocument from "pdfkit";
 import dotenv from "dotenv";
 import path from "path";
