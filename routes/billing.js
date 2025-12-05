@@ -1,3 +1,4 @@
+// api/routes/billing.js
 import express from 'express'
 import Stripe from 'stripe'
 import { PrismaClient } from '@prisma/client'
@@ -7,7 +8,9 @@ const router = express.Router()
 const prisma = new PrismaClient()
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
-// jednoduchý auth middleware (stejný token jako máš v server.js)
+/* -------------------------------------------------------
+   SIMPLE AUTH (stejný jako v server.js)
+-------------------------------------------------------- */
 function requireAuth(req, res, next) {
   try {
     const token =
@@ -21,6 +24,9 @@ function requireAuth(req, res, next) {
   }
 }
 
+/* -------------------------------------------------------
+   CREATE CHECKOUT SESSION
+-------------------------------------------------------- */
 router.post('/create-checkout-session', requireAuth, async (req, res) => {
   try {
     const { priceId, planCode, billingPeriod } = req.body
@@ -31,7 +37,9 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { id: req.user.id } })
 
-    // 1️⃣ vytvoření Stripe Customer (pokud není)
+    /* -------------------------------------------------------
+       1) Ensure Stripe customer exists
+    -------------------------------------------------------- */
     let customerId = user.stripeCustomerId
 
     if (!customerId) {
@@ -50,7 +58,9 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
       })
     }
 
-    // 2️⃣ vytvoření Checkout Session
+    /* -------------------------------------------------------
+       2) Create checkout session
+    -------------------------------------------------------- */
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
@@ -63,14 +73,23 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
         }
       ],
 
+      /* FRONTEND REDIRECT */
       success_url: `${process.env.FRONTEND_ORIGIN}/billing/success`,
       cancel_url: `${process.env.FRONTEND_ORIGIN}/billing/cancel`,
 
+      /* ❗ Checkout metadata – NEPROPISUJE SE do subscription */
       metadata: {
-        ownerType: 'USER',
-        ownerId: user.id,
-        planCode,
-        billingPeriod
+        planCode
+      },
+
+      /* ✔ Subscription metadata – přenáší se do webhooku */
+      subscription_data: {
+        metadata: {
+          ownerType: "USER",
+          ownerId: user.id,
+          planCode,
+          billingPeriod
+        }
       }
     })
 

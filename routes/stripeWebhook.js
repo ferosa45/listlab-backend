@@ -81,7 +81,7 @@ async function syncSubscription(subscription) {
   const data = {
     ownerType,
     ownerId,
-    planCode: meta.planCode || null,
+    planCode: meta.planCode || "UNKNOWN",
     billingPeriod: item.price.recurring.interval,
     stripeCustomerId: subscription.customer,
     stripeSubscriptionId: subscription.id,
