@@ -45,13 +45,35 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       break
     }
 
+    /* ------------------------------------------------------
+       🔥 FIX: invoice.payment_succeeded → použít periodu z invoice
+    ------------------------------------------------------ */
     case 'invoice.payment_failed':
     case 'invoice.paid':
     case 'invoice.payment_succeeded': {
       const invoice = event.data.object
+
       if (invoice.subscription) {
+
+        // 1) Načti subscription objekt
         const subscription = await stripe.subscriptions.retrieve(invoice.subscription)
-        await syncSubscription(subscription)
+
+        // 2) Najdi invoice line item
+        const line = invoice?.lines?.data?.[0]
+
+        const periodStart = line?.period?.start
+          ? new Date(line.period.start * 1000)
+          : null
+
+        const periodEnd = line?.period?.end
+          ? new Date(line.period.end * 1000)
+          : null
+
+        // 3) Předáme override s periodou
+        await syncSubscription(subscription, {
+          periodStart,
+          periodEnd
+        })
       }
       break
     }
@@ -62,6 +84,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 
   res.json({ received: true })
 })
+
 
 /* -------------------------------------------------------
    Process Checkout → load subscription → sync
@@ -78,10 +101,12 @@ async function processCheckoutSession(session) {
   await syncSubscription(subscription)
 }
 
+
 /* -------------------------------------------------------
    Sync Subscription → DB
+   (nově: přijímá overrides s periodStart / periodEnd)
 -------------------------------------------------------- */
-async function syncSubscription(subscription) {
+async function syncSubscription(subscription, overrides = {}) {
   console.log("🔄 Syncing subscription", subscription.id)
 
   const item = subscription.items.data[0]
@@ -106,13 +131,18 @@ async function syncSubscription(subscription) {
     status: subscription.status,
     cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
 
-    currentPeriodStart: subscription.current_period_start
-      ? new Date(subscription.current_period_start * 1000)
-      : null,
+    // 🔥 New: preferujeme INVOICE period (overrides)
+    currentPeriodStart:
+      overrides.periodStart ??
+      (subscription.current_period_start
+        ? new Date(subscription.current_period_start * 1000)
+        : null),
 
-    currentPeriodEnd: subscription.current_period_end
-      ? new Date(subscription.current_period_end * 1000)
-      : null,
+    currentPeriodEnd:
+      overrides.periodEnd ??
+      (subscription.current_period_end
+        ? new Date(subscription.current_period_end * 1000)
+        : null),
 
     seatLimit: meta.seatLimit ? Number(meta.seatLimit) : null
   }
@@ -127,6 +157,7 @@ async function syncSubscription(subscription) {
 
   console.log("✅ Subscription synced:", subscription.id)
 }
+
 
 /* -------------------------------------------------------
    Update USER or SCHOOL
