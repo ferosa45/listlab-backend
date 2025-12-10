@@ -48,11 +48,11 @@ app.use(
   })
 );
 
-// ✅ STRIPE WEBHOOK – MUSÍ BÝT PŘED express.json()
-app.use('/webhooks/stripe', stripeWebhookRouter)
+// ✅ STRIPE WEBHOOK – musí být před express.json()
+app.use('/api/stripe/webhook', stripeWebhookRouter)
 
-app.use(express.json());
-app.use(cookieParser());
+app.use(express.json())
+app.use(cookieParser())
 
 // ---------- COOKIE HELPERS ----------
 function setAuthCookie(res, token) {

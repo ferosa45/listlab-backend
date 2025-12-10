@@ -9,7 +9,7 @@ const prisma = new PrismaClient()
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
 /* -------------------------------------------------------
-   SIMPLE AUTH (stejný jako v server.js)
+   AUTH
 -------------------------------------------------------- */
 function requireAuth(req, res, next) {
   try {
@@ -35,19 +35,19 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Missing billing parameters' })
     }
 
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } })
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id }
+    })
 
     /* -------------------------------------------------------
-       1) Ensure Stripe customer exists
+       1) Ensure Stripe Customer exists
     -------------------------------------------------------- */
     let customerId = user.stripeCustomerId
 
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email,
-        metadata: {
-          userId: user.id
-        }
+        metadata: { userId: user.id }
       })
 
       customerId = customer.id
@@ -59,7 +59,7 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
     }
 
     /* -------------------------------------------------------
-       2) Create checkout session
+       2) Create Stripe Checkout Session
     -------------------------------------------------------- */
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -69,20 +69,19 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
       line_items: [
         {
           price: priceId,
-          quantity: 1,
+          quantity: 1
         }
       ],
 
-      /* FRONTEND REDIRECT */
       success_url: `${process.env.FRONTEND_ORIGIN}/billing/success`,
       cancel_url: `${process.env.FRONTEND_ORIGIN}/billing/cancel`,
 
-      /* ❗ Checkout metadata – NEPROPISUJE SE do subscription */
+      // Metadata *pro session* (nepotřebné pro webhook)
       metadata: {
         planCode
       },
 
-      /* ✔ Subscription metadata – přenáší se do webhooku */
+      // ✔ Metadata přenesená do subscription → použije webhook
       subscription_data: {
         metadata: {
           ownerType: "USER",
@@ -93,11 +92,11 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
       }
     })
 
-    res.json({ url: session.url })
+    return res.json({ url: session.url })
 
   } catch (err) {
-    console.error('Checkout error:', err)
-    res.status(500).json({ error: 'Checkout session failed' })
+    console.error("Checkout error:", err)
+    return res.status(500).json({ error: "Checkout session failed" })
   }
 })
 

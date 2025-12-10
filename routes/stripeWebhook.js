@@ -1,11 +1,12 @@
 // routes/stripeWebhook.js
 import express from 'express'
 import Stripe from 'stripe'
-import { prisma } from "../src/lib/prisma.js"   // ← TOTO JE SPRÁVNĚ
+import { prisma } from "../src/lib/prisma.js"
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 const router = express.Router()
 
+// IMPORTANT: RAW BODY
 router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature']
   let event
@@ -17,15 +18,23 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       process.env.STRIPE_WEBHOOK_SECRET
     )
   } catch (err) {
-    console.error('Webhook error:', err.message)
+    console.error('❌ Webhook signature error:', err.message)
     return res.status(400).send()
   }
+
+  console.log("➡️ Webhook received:", event.type)
 
   switch (event.type) {
 
     case 'checkout.session.completed': {
       const session = event.data.object
       await processCheckoutSession(session)
+      break
+    }
+
+    case 'customer.subscription.created': {
+      const subscription = event.data.object
+      await syncSubscription(subscription)
       break
     }
 
@@ -36,7 +45,9 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       break
     }
 
-    case 'invoice.payment_failed': {
+    case 'invoice.payment_failed':
+    case 'invoice.paid':
+    case 'invoice.payment_succeeded': {
       const invoice = event.data.object
       if (invoice.subscription) {
         const subscription = await stripe.subscriptions.retrieve(invoice.subscription)
@@ -46,14 +57,15 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
     }
 
     default:
-      console.log('Ignored event:', event.type)
+      console.log('ℹ️ Ignored event:', event.type)
   }
 
   res.json({ received: true })
 })
 
-/* ---------------- CORE FUNCTIONS ---------------- */
-
+/* -------------------------------------------------------
+   Process Checkout → load subscription → sync
+-------------------------------------------------------- */
 async function processCheckoutSession(session) {
   const subscriptionId = session.subscription
 
@@ -66,7 +78,12 @@ async function processCheckoutSession(session) {
   await syncSubscription(subscription)
 }
 
+/* -------------------------------------------------------
+   Sync Subscription → DB
+-------------------------------------------------------- */
 async function syncSubscription(subscription) {
+  console.log("🔄 Syncing subscription", subscription.id)
+
   const item = subscription.items.data[0]
   const meta = subscription.metadata || {}
 
@@ -107,10 +124,13 @@ async function syncSubscription(subscription) {
   })
 
   await updateOwnerStatus(data)
+
+  console.log("✅ Subscription synced:", subscription.id)
 }
 
-/* ---------------- OWNER LOGIC ---------------- */
-
+/* -------------------------------------------------------
+   Update USER or SCHOOL
+-------------------------------------------------------- */
 async function updateOwnerStatus(data) {
   const updates = {
     subscriptionStatus: data.status,
