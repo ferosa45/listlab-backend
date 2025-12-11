@@ -562,6 +562,207 @@ app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res
   }
 });
 
+// ---------- Vytvoří draft školy ----------
+app.post("/api/team/create-school", async (req, res) => {
+  const { name, adminEmail } = req.body;
+
+  try {
+    // Najdeme nebo vytvoříme admina
+    let user = await prisma.user.findUnique({ where: { email: adminEmail } });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: adminEmail,
+          password: "TEMPORARY", // později reset hesla
+          role: "SCHOOL_ADMIN"
+        }
+      });
+    }
+
+    // Vytvoření školy
+    const school = await prisma.school.create({
+      data: {
+        name,
+        users: {
+          connect: { id: user.id }
+        }
+      }
+    });
+
+    return res.json({ ok: true, schoolId: school.id });
+
+  } catch (error) {
+    console.error("create-school error:", error);
+    return res.status(500).json({ error: "Failed to create school" });
+  }
+});
+
+// ---------- TEAM CHECKOUT – vytvoří Stripe Checkout Session ----------
+app.post("/api/team/checkout", async (req, res) => {
+  try {
+    const { schoolId, plan } = req.body; // plan = "team_monthly" | "team_yearly"
+
+    if (!schoolId || !plan) {
+      return res.status(400).json({ error: "Missing schoolId or plan" });
+    }
+
+    // 1) Najdeme školu
+    const school = await prisma.school.findUnique({ where: { id: schoolId } });
+    if (!school) return res.status(404).json({ error: "School not found" });
+
+    // 2) Stripe Customer – pokud neexistuje, vytvoříme
+    let stripeCustomerId = school.stripeCustomerId;
+
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        name: school.name,
+        metadata: { schoolId }
+      });
+
+      stripeCustomerId = customer.id;
+
+      await prisma.school.update({
+        where: { id: schoolId },
+        data: { stripeCustomerId }
+      });
+    }
+
+    // 3) Určení Stripe Price
+    const priceId =
+      plan === "team_yearly"
+        ? process.env.STRIPE_TEAM_YEARLY_PRICE_ID
+        : process.env.STRIPE_TEAM_MONTHLY_PRICE_ID;
+
+    if (!priceId) {
+      return res.status(500).json({ error: "Missing TEAM price IDs in env" });
+    }
+
+    // 4) Checkout session
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      customer: stripeCustomerId,
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      success_url: `${process.env.FRONTEND_ORIGIN}/team/success?schoolId=${schoolId}`,
+      cancel_url: `${process.env.FRONTEND_ORIGIN}/team/cancel`,
+      metadata: {
+        schoolId,
+        plan,
+        ownerType: "SCHOOL"
+      },
+      subscription_data: {
+        metadata: {
+          schoolId,
+          plan,
+          ownerType: "SCHOOL"
+        }
+      }
+    });
+
+    return res.json({ ok: true, url: session.url });
+
+  } catch (error) {
+    console.error("TEAM checkout error:", error);
+    return res.status(500).json({ error: "Failed to create TEAM checkout session" });
+  }
+});
+
+
+// ---------- Aktivuje školu po zaplacení. ----------
+app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      req.headers["stripe-signature"],
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error("Webhook signature verification failed:", err);
+    return res.sendStatus(400);
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+
+    const schoolId = session.metadata.schoolId;
+    const plan = session.metadata.plan;
+
+    try {
+      await prisma.school.update({
+        where: { id: schoolId },
+        data: {
+          subscriptionStatus: "active",
+          subscriptionPlan: plan,
+          stripeSubscriptionId: session.subscription,
+          subscriptionUntil: new Date() // později se nahradí přes updated event
+        }
+      });
+
+      // Vytvoření Subscription záznamu
+      await prisma.subscription.create({
+        data: {
+          ownerType: "SCHOOL",
+          ownerId: schoolId,
+          planCode: plan,
+          billingPeriod: plan.includes("yearly") ? "yearly" : "monthly",
+          stripeCustomerId: session.customer,
+          stripeSubscriptionId: session.subscription,
+          stripePriceId: session.amount_total,
+          status: "active"
+        }
+      });
+
+    } catch (e) {
+      console.error("Error updating school after checkout:", e);
+    }
+  }
+
+  if (event.type === "customer.subscription.updated") {
+    const sub = event.data.object;
+
+    // SCHOOL or USER? – hledáme ve School
+    const school = await prisma.school.findFirst({
+      where: { stripeSubscriptionId: sub.id }
+    });
+
+    if (school) {
+      await prisma.school.update({
+        where: { id: school.id },
+        data: {
+          subscriptionStatus: sub.status,
+          subscriptionUntil: new Date(sub.current_period_end * 1000)
+        }
+      });
+    }
+  }
+
+  if (event.type === "customer.subscription.deleted") {
+    const sub = event.data.object;
+
+    const school = await prisma.school.findFirst({
+      where: { stripeSubscriptionId: sub.id }
+    });
+
+    if (school) {
+      await prisma.school.update({
+        where: { id: school.id },
+        data: {
+          subscriptionStatus: "canceled"
+        }
+      });
+    }
+  }
+
+  res.json({ received: true });
+});
+
 
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
