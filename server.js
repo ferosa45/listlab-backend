@@ -763,6 +763,97 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
   res.json({ received: true });
 });
 
+// ---------- Získání seznamu učitelů školy ----------
+app.get("/api/team/teachers", authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.schoolId) {
+      return res.status(403).json({ error: "User is not part of a school" });
+    }
+
+    const school = await prisma.school.findUnique({
+      where: { id: req.user.schoolId },
+      include: { users: true }
+    });
+
+    if (!school) {
+      return res.status(404).json({ error: "School not found" });
+    }
+
+    return res.json({ ok: true, teachers: school.users });
+
+  } catch (err) {
+    console.error("team/teachers error:", err);
+    return res.status(500).json({ error: "Failed to load teachers" });
+  }
+});
+
+// ---------- Přidání učitele do školy ----------
+
+app.post("/api/team/add-teacher", authMiddleware, async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) return res.status(400).json({ error: "Missing email" });
+
+    // Musí být school admin
+    if (req.user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({ error: "Only school admin can add teachers" });
+    }
+
+    const schoolId = req.user.schoolId;
+
+    if (!schoolId) {
+      return res.status(400).json({ error: "Admin is not linked to a school" });
+    }
+
+    const school = await prisma.school.findUnique({
+      where: { id: schoolId },
+      include: { users: true }
+    });
+
+    if (!school) return res.status(404).json({ error: "School not found" });
+
+    // Seat limit
+    if (school.seatLimit && school.users.length >= school.seatLimit) {
+      return res.status(400).json({
+        error: "SEAT_LIMIT_REACHED",
+        message: `Škola má plný počet licencí (${school.seatLimit}).`
+      });
+    }
+
+    // Najít nebo vytvořit uživatele
+    let user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email,
+          password: "TEMPORARY",
+          role: "TEACHER"
+        }
+      });
+    }
+
+    // Přiřadit ke škole + aktivovat TEAM licenci
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        schoolId,
+        subscriptionPlan: "team",
+        subscriptionStatus: "active"
+      }
+    });
+
+    return res.json({ ok: true, user });
+
+  } catch (err) {
+    console.error("add-teacher error:", err);
+    return res.status(500).json({ error: "Failed to add teacher" });
+  }
+});
+
+
+
 
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
