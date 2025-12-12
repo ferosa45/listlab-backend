@@ -551,7 +551,7 @@ app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res
           billingPeriod: billingPeriod || "month",
         },
       },
-      success_url: `${process.env.FRONTEND_ORIGIN}/billing/success`,
+      success_url: `${process.env.FRONTEND_ORIGIN}/team/success`,
       cancel_url: `${process.env.FRONTEND_ORIGIN}/billing/cancel`,
     });
 
@@ -562,7 +562,7 @@ app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res
   }
 });
 
-// ---------- Vytvoří draft školy ----------
+// ---------- Vytvoří draft školy (registrace školy) ----------
 app.post("/api/team/create-school", async (req, res) => {
   const { name, adminEmail } = req.body;
 
@@ -571,6 +571,7 @@ app.post("/api/team/create-school", async (req, res) => {
     let user = await prisma.user.findUnique({ where: { email: adminEmail } });
 
     if (!user) {
+      // nový uživatel = SCHOOL_ADMIN
       user = await prisma.user.create({
         data: {
           email: adminEmail,
@@ -578,15 +579,27 @@ app.post("/api/team/create-school", async (req, res) => {
           role: "SCHOOL_ADMIN"
         }
       });
+    } else {
+      // existující user = povýšíme ho
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: "SCHOOL_ADMIN" }
+      });
     }
 
-    // Vytvoření školy
+    // 1) vytvoření školy
     const school = await prisma.school.create({
       data: {
         name,
-        users: {
-          connect: { id: user.id }
-        }
+        seatLimit: 10, // DEFAULT
+      }
+    });
+
+    // 2) přiřazení admina do školy
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        schoolId: school.id
       }
     });
 
@@ -597,6 +610,7 @@ app.post("/api/team/create-school", async (req, res) => {
     return res.status(500).json({ error: "Failed to create school" });
   }
 });
+
 
 // ---------- TEAM CHECKOUT – vytvoří Stripe Checkout Session ----------
 app.post("/api/team/checkout", async (req, res) => {
@@ -695,15 +709,22 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
     const plan = session.metadata.plan;
 
     try {
-      await prisma.school.update({
-        where: { id: schoolId },
-        data: {
-          subscriptionStatus: "active",
-          subscriptionPlan: plan,
-          stripeSubscriptionId: session.subscription,
-          subscriptionUntil: new Date() // později se nahradí přes updated event
-        }
-      });
+      // Načteme Stripe subscription pro získání quantity
+const stripeSub = await stripe.subscriptions.retrieve(session.subscription);
+const quantity =
+  stripeSub.items?.data?.[0]?.quantity &&
+  Number(stripeSub.items.data[0].quantity);
+
+await prisma.school.update({
+  where: { id: schoolId },
+  data: {
+    subscriptionStatus: "active",
+    subscriptionPlan: plan,
+    stripeSubscriptionId: session.subscription,
+    subscriptionUntil: new Date(stripeSub.current_period_end * 1000),
+    seatLimit: quantity || 10 // pokud Stripe quantity není dostupné
+  }
+});
 
       // Vytvoření Subscription záznamu
       await prisma.subscription.create({
@@ -725,23 +746,32 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
   }
 
   if (event.type === "customer.subscription.updated") {
-    const sub = event.data.object;
+  const sub = event.data.object;
 
-    // SCHOOL or USER? – hledáme ve School
-    const school = await prisma.school.findFirst({
-      where: { stripeSubscriptionId: sub.id }
+  // quantity = počet sedadel (učitelů)
+  const quantity =
+    sub.items?.data?.[0]?.quantity && Number(sub.items.data[0].quantity);
+
+  const school = await prisma.school.findFirst({
+    where: { stripeSubscriptionId: sub.id }
+  });
+
+  if (school) {
+    await prisma.school.update({
+      where: { id: school.id },
+      data: {
+        subscriptionStatus: sub.status,
+        subscriptionUntil: new Date(sub.current_period_end * 1000),
+        seatLimit: quantity || school.seatLimit // fallback
+      }
     });
 
-    if (school) {
-      await prisma.school.update({
-        where: { id: school.id },
-        data: {
-          subscriptionStatus: sub.status,
-          subscriptionUntil: new Date(sub.current_period_end * 1000)
-        }
-      });
-    }
+    console.log(
+      `Updated school seatLimit → ${quantity} (school: ${school.id})`
+    );
   }
+}
+
 
   if (event.type === "customer.subscription.deleted") {
     const sub = event.data.object;
@@ -852,6 +882,38 @@ app.post("/api/team/add-teacher", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------- TEAM BILLING PORTAL ----------
+app.post("/api/team/billing-portal", authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+
+    // musí být SCHOOL_ADMIN
+    if (user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({ error: "Only school admins can open billing portal" });
+    }
+
+    // načteme školu
+    const school = await prisma.school.findUnique({
+      where: { id: user.schoolId }
+    });
+
+    if (!school || !school.stripeCustomerId) {
+      return res.status(400).json({ error: "School does not have Stripe customer" });
+    }
+
+    // vytvoření billing portal session
+    const session = await stripe.billingPortal.sessions.create({
+      customer: school.stripeCustomerId,
+      return_url: `${process.env.FRONTEND_ORIGIN}/school-admin`,
+    });
+
+    return res.json({ ok: true, url: session.url });
+
+  } catch (err) {
+    console.error("Billing portal error:", err);
+    return res.status(500).json({ error: "Failed to create billing portal session" });
+  }
+});
 
 
 
