@@ -915,6 +915,59 @@ app.post("/api/team/billing-portal", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------- start-registration team ----------
+app.post("/api/team/start-registration", async (req, res) => {
+  const { schoolName, adminEmail } = req.body;
+
+  if (!schoolName || !adminEmail) {
+    return res.status(400).json({ ok: false, error: "Missing fields" });
+  }
+
+  try {
+    // 1) najdeme nebo vytvoříme usera
+    let user = await prisma.user.findUnique({
+      where: { email: adminEmail }
+    });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: adminEmail,
+          password: "", // vytvoří se později přes reset hesla
+          role: "SCHOOL_ADMIN"
+        }
+      });
+    }
+
+    // 2) vytvoříme JWT token a uložíme cookie
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: "2h" }
+    );
+
+    setAuthCookie(res, token);
+
+    // 3) vytvoříme školu (zatím bez předplatného)
+    const school = await prisma.school.create({
+      data: {
+        name: schoolName,
+        users: { connect: { id: user.id } }
+      }
+    });
+
+    return res.json({
+      ok: true,
+      user,
+      school
+    });
+
+  } catch (e) {
+    console.error("start-registration error:", e);
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
 
 
 // ---------- WORKSHEET LOGS ----------
