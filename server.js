@@ -1032,7 +1032,61 @@ app.post("/api/team/start-registration", async (req, res) => {
   }
 });
 
+// ---------- CREATE SCHOOL (FREE → TEAM) ----------
+app.post("/api/school/create", authMiddleware, async (req, res) => {
+  try {
+    const { name } = req.body;
 
+    if (!name || name.length < 3) {
+      return res.status(400).json({
+        ok: false,
+        error: "INVALID_NAME"
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id }
+    });
+
+    if (!user) {
+      return res.status(401).json({ ok: false });
+    }
+
+    if (user.schoolId) {
+      return res.status(400).json({
+        ok: false,
+        error: "ALREADY_HAS_SCHOOL"
+      });
+    }
+
+    const school = await prisma.school.create({
+      data: {
+        name,
+        subscriptionStatus: "inactive",
+        users: {
+          connect: { id: user.id }
+        }
+      }
+    });
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        role: "SCHOOL_ADMIN",
+        schoolId: school.id
+      }
+    });
+
+    res.json({
+      ok: true,
+      schoolId: school.id
+    });
+
+  } catch (err) {
+    console.error("CREATE SCHOOL ERROR:", err);
+    res.status(500).json({ ok: false });
+  }
+});
 
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
