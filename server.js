@@ -149,33 +149,32 @@ app.post("/api/auth/login", async (req, res) => {
   res.json({ ok: true, user });
 });
 
-// ---------- SET PASSWORD (TEAM onboarding) ----------
-app.post("/api/auth/set-password", async (req, res) => {
+// ---------- SET PASSWORD (cookie-based) ----------
+app.post("/api/auth/set-password", authMiddleware, async (req, res) => {
   try {
-    const { token, password } = req.body;
+    const { password } = req.body;
 
-    if (!token || !password || password.length < 6) {
+    if (!password || password.length < 6) {
       return res.status(400).json({
         ok: false,
-        error: "INVALID_INPUT",
-        message: "Neplatný token nebo příliš krátké heslo."
+        error: "INVALID_PASSWORD",
+        message: "Heslo musí mít alespoň 6 znaků."
       });
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        passwordSetupToken: token,
-        passwordSetupExpires: {
-          gt: new Date()
-        }
-      }
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id }
     });
 
     if (!user) {
+      return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+    }
+
+    if (user.password) {
       return res.status(400).json({
         ok: false,
-        error: "TOKEN_INVALID",
-        message: "Token je neplatný nebo expirovaný."
+        error: "ALREADY_SET",
+        message: "Heslo je již nastaveno."
       });
     }
 
@@ -183,21 +182,8 @@ app.post("/api/auth/set-password", async (req, res) => {
 
     await prisma.user.update({
       where: { id: user.id },
-      data: {
-        password: hashed,
-        passwordSetupToken: null,
-        passwordSetupExpires: null
-      }
+      data: { password: hashed }
     });
-
-    // 🔐 AUTO LOGIN
-    const jwtToken = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    setAuthCookie(res, jwtToken);
 
     res.json({ ok: true });
 
@@ -205,20 +191,35 @@ app.post("/api/auth/set-password", async (req, res) => {
     console.error("SET PASSWORD ERROR:", err);
     res.status(500).json({
       ok: false,
-      error: "SERVER_ERROR",
-      message: "Chyba serveru při nastavování hesla."
+      error: "SERVER_ERROR"
     });
   }
 });
 
 
+
 app.get("/api/auth/me", authMiddleware, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
-    select: { id: true, email: true, role: true, schoolId: true },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      schoolId: true,
+      password: true
+    },
   });
 
-  res.json({ ok: true, user });
+  res.json({
+    ok: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      schoolId: user.schoolId,
+      needsPasswordSetup: !user.password
+    }
+  });
 });
 
 app.post("/api/auth/logout", (_req, res) => {
