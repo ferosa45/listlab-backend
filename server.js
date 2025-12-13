@@ -1047,7 +1047,6 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
       });
     }
 
-    // už má školu?
     const existing = await prisma.user.findUnique({
       where: { id: userId },
       select: { schoolId: true }
@@ -1060,7 +1059,6 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
       });
     }
 
-    // vytvořit školu
     const school = await prisma.school.create({
       data: {
         name,
@@ -1070,7 +1068,6 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
       }
     });
 
-    // povýšit uživatele na SCHOOL_ADMIN
     await prisma.user.update({
       where: { id: userId },
       data: {
@@ -1079,9 +1076,13 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
       }
     });
 
-    res.json({
+    return res.json({
       ok: true,
-      schoolId: school.id
+      user: {
+        id: userId,
+        role: "SCHOOL_ADMIN",
+        schoolId: school.id
+      }
     });
 
   } catch (err) {
@@ -1092,6 +1093,7 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 
 // ---------- WORKSHEET LOGS ----------
