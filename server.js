@@ -1034,9 +1034,10 @@ app.post("/api/team/start-registration", async (req, res) => {
   }
 });
 
-// ---------- CREATE SCHOOL (FREE → TEAM) ----------
+// ---------- CREATE SCHOOL (FREE USER) ----------
 app.post("/api/school/create", authMiddleware, async (req, res) => {
   try {
+    const userId = req.user.id;
     const { name } = req.body;
 
     if (!name || name.length < 3) {
@@ -1046,33 +1047,32 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
       });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id }
+    // už má školu?
+    const existing = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { schoolId: true }
     });
 
-    if (!user) {
-      return res.status(401).json({ ok: false });
-    }
-
-    if (user.schoolId) {
+    if (existing.schoolId) {
       return res.status(400).json({
         ok: false,
         error: "ALREADY_HAS_SCHOOL"
       });
     }
 
+    // vytvořit školu
     const school = await prisma.school.create({
       data: {
         name,
-        subscriptionStatus: "inactive",
         users: {
-          connect: { id: user.id }
+          connect: { id: userId }
         }
       }
     });
 
+    // povýšit uživatele na SCHOOL_ADMIN
     await prisma.user.update({
-      where: { id: user.id },
+      where: { id: userId },
       data: {
         role: "SCHOOL_ADMIN",
         schoolId: school.id
@@ -1086,9 +1086,13 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
 
   } catch (err) {
     console.error("CREATE SCHOOL ERROR:", err);
-    res.status(500).json({ ok: false });
+    res.status(500).json({
+      ok: false,
+      error: "CREATE_SCHOOL_FAILED"
+    });
   }
 });
+
 
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
