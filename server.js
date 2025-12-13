@@ -56,14 +56,16 @@ app.use(cookieParser())
 
 // ---------- COOKIE HELPERS ----------
 function setAuthCookie(res, token) {
-  const isProd = NODE_ENV === "production";
+  const isHttps =
+  FRONTEND_ORIGIN.startsWith("https://");
 
-  res.cookie("token", token, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? "None" : "Lax",
-    path: "/",
-  });
+res.cookie("token", token, {
+  httpOnly: true,
+  secure: isHttps,                  // 🔥 KLÍČOVÉ
+  sameSite: isHttps ? "None" : "Lax",
+  path: "/",
+});
+
 }
 
 function clearAuthCookie(res) {
