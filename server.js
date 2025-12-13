@@ -149,6 +149,69 @@ app.post("/api/auth/login", async (req, res) => {
   res.json({ ok: true, user });
 });
 
+// ---------- SET PASSWORD (TEAM onboarding) ----------
+app.post("/api/auth/set-password", async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password || password.length < 6) {
+      return res.status(400).json({
+        ok: false,
+        error: "INVALID_INPUT",
+        message: "Neplatný token nebo příliš krátké heslo."
+      });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        passwordSetupToken: token,
+        passwordSetupExpires: {
+          gt: new Date()
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        ok: false,
+        error: "TOKEN_INVALID",
+        message: "Token je neplatný nebo expirovaný."
+      });
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashed,
+        passwordSetupToken: null,
+        passwordSetupExpires: null
+      }
+    });
+
+    // 🔐 AUTO LOGIN
+    const jwtToken = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    setAuthCookie(res, jwtToken);
+
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error("SET PASSWORD ERROR:", err);
+    res.status(500).json({
+      ok: false,
+      error: "SERVER_ERROR",
+      message: "Chyba serveru při nastavování hesla."
+    });
+  }
+});
+
+
 app.get("/api/auth/me", authMiddleware, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
