@@ -748,6 +748,56 @@ app.post("/api/team/checkout", async (req, res) => {
   }
 });
 
+// ---------- TEAM: GET MY SCHOOL ----------
+app.get("/api/team/school", authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({
+        ok: false,
+        error: "FORBIDDEN",
+      });
+    }
+
+    if (!req.user.schoolId) {
+      return res.status(400).json({
+        ok: false,
+        error: "USER_HAS_NO_SCHOOL",
+      });
+    }
+
+    const school = await prisma.school.findUnique({
+      where: { id: req.user.schoolId },
+      include: {
+        users: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!school) {
+      return res.status(404).json({
+        ok: false,
+        error: "SCHOOL_NOT_FOUND",
+      });
+    }
+
+    res.json({
+      ok: true,
+      school,
+    });
+  } catch (err) {
+    console.error("GET TEAM SCHOOL ERROR:", err);
+    res.status(500).json({
+      ok: false,
+      error: "GET_TEAM_SCHOOL_FAILED",
+    });
+  }
+});
+
 
 // ---------- Aktivuje školu po zaplacení. ----------
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
