@@ -56,27 +56,23 @@ app.use(cookieParser())
 
 // ---------- COOKIE HELPERS ----------
 function setAuthCookie(res, token) {
-  const isHttps =
-  FRONTEND_ORIGIN.startsWith("https://");
-
-res.cookie("token", token, {
-  httpOnly: true,
-  secure: isHttps,                  // 🔥 KLÍČOVÉ
-  sameSite: isHttps ? "None" : "Lax",
-  path: "/",
-});
-
-}
-
-function clearAuthCookie(res) {
-  const isProd = NODE_ENV === "production";
-
-  res.clearCookie("token", {
-    secure: isProd,
-    sameSite: isProd ? "None" : "Lax",
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: true,      // 🔥 MUSÍ BÝT TRUE (Railway = HTTPS)
+    sameSite: "None",  // 🔥 MUSÍ BÝT NONE pro cross-origin
     path: "/",
   });
 }
+
+
+function clearAuthCookie(res) {
+  res.clearCookie("token", {
+    secure: true,
+    sameSite: "None",
+    path: "/",
+  });
+}
+
 
 // ---------- AUTH MIDDLEWARE ----------
 function authMiddleware(req, res, next) {
