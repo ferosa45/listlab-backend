@@ -13,6 +13,7 @@ import { body, validationResult } from "express-validator";
 import { fileURLToPath } from "url";
 import stripeWebhookRouter from './routes/stripeWebhook.js'
 import billingRouter from './routes/billing.js'
+import { authMiddleware } from "./middleware/authMiddleware.js";
 
 // ---------- CUSTOM SERVICES & MIDDLEWARE ----------
 import { licenseContext } from "./src/middleware/licenseContext.js";
