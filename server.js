@@ -1086,89 +1086,62 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
     const userId = req.user.id;
     const { name } = req.body;
 
-    // 1️⃣ validace
-    if (!name || name.trim().length < 3) {
-      return res.status(400).json({
-        ok: false,
-        error: "INVALID_NAME",
-      });
+    if (!name || name.length < 3) {
+      return res.status(400).json({ ok: false, error: "INVALID_NAME" });
     }
 
-    // 2️⃣ kontrola, zda už nemá školu
-    const existingUser = await prisma.user.findUnique({
+    const existing = await prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        schoolId: true,
+      select: { schoolId: true },
+    });
+
+    if (existing.schoolId) {
+      return res.status(400).json({ ok: false, error: "ALREADY_HAS_SCHOOL" });
+    }
+
+    // 🏫 vytvoření školy
+    const school = await prisma.school.create({
+      data: {
+        name,
+        users: {
+          connect: { id: userId },
+        },
       },
     });
 
-    if (!existingUser) {
-      return res.status(404).json({
-        ok: false,
-        error: "USER_NOT_FOUND",
-      });
-    }
-
-    if (existingUser.schoolId) {
-      return res.status(400).json({
-        ok: false,
-        error: "ALREADY_HAS_SCHOOL",
-      });
-    }
-
-    // 3️⃣ vytvoření školy + povýšení uživatele (transakce!)
-    const result = await prisma.$transaction(async (tx) => {
-      const school = await tx.school.create({
-        data: {
-          name: name.trim(),
-        },
-      });
-
-      const updatedUser = await tx.user.update({
-        where: { id: userId },
-        data: {
-          role: "SCHOOL_ADMIN",
-          schoolId: school.id,
-        },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          schoolId: true,
-        },
-      });
-
-      // propojení uživatele se školou (relation)
-      await tx.school.update({
-        where: { id: school.id },
-        data: {
-          users: {
-            connect: { id: userId },
-          },
-        },
-      });
-
-      return { school, user: updatedUser };
+    // 👑 povýšení uživatele
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        role: "SCHOOL_ADMIN",
+        schoolId: school.id,
+      },
     });
 
-    // 4️⃣ návrat dat pro frontend (KRITICKÉ)
-    return res.json({
+    // 🔥 VYSTAVIT NOVÝ TOKEN
+    const token = jwt.sign(
+      {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        schoolId: updatedUser.schoolId,
+      },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    setAuthCookie(res, token);
+
+    res.json({
       ok: true,
-      schoolId: result.school.id,
-      user: result.user,
+      schoolId: school.id,
     });
-
   } catch (err) {
     console.error("CREATE SCHOOL ERROR:", err);
-    return res.status(500).json({
-      ok: false,
-      error: "CREATE_SCHOOL_FAILED",
-    });
+    res.status(500).json({ ok: false, error: "CREATE_SCHOOL_FAILED" });
   }
 });
+
 
 
 
