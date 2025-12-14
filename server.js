@@ -1083,19 +1083,29 @@ app.post("/api/team/start-registration", async (req, res) => {
 // ---------- CREATE SCHOOL (FREE USER) ----------
 app.post("/api/school/create", authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.id;
+    // ✅ authMiddleware musí dát req.user.email
+    const email = req.user?.email;
+
+    if (!email) {
+      return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+    }
+
     const { name } = req.body;
 
     if (!name || name.length < 3) {
       return res.status(400).json({ ok: false, error: "INVALID_NAME" });
     }
 
-    const existing = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { schoolId: true },
+    // 🔥 vždy si načti usera z DB
+    const user = await prisma.user.findUnique({
+      where: { email },
     });
 
-    if (existing.schoolId) {
+    if (!user) {
+      return res.status(401).json({ ok: false, error: "USER_NOT_FOUND" });
+    }
+
+    if (user.schoolId) {
       return res.status(400).json({ ok: false, error: "ALREADY_HAS_SCHOOL" });
     }
 
@@ -1104,21 +1114,21 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
       data: {
         name,
         users: {
-          connect: { id: userId },
+          connect: { id: user.id },
         },
       },
     });
 
     // 👑 povýšení uživatele
     const updatedUser = await prisma.user.update({
-      where: { id: userId },
+      where: { id: user.id },
       data: {
         role: "SCHOOL_ADMIN",
         schoolId: school.id,
       },
     });
 
-    // 🔥 VYSTAVIT NOVÝ TOKEN
+    // 🔐 NOVÝ TOKEN (KRITICKÉ)
     const token = jwt.sign(
       {
         id: updatedUser.id,
@@ -1132,15 +1142,17 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
 
     setAuthCookie(res, token);
 
-    res.json({
+    return res.json({
       ok: true,
       schoolId: school.id,
     });
+
   } catch (err) {
     console.error("CREATE SCHOOL ERROR:", err);
     res.status(500).json({ ok: false, error: "CREATE_SCHOOL_FAILED" });
   }
 });
+
 
 
 
