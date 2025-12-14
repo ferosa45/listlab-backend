@@ -13,7 +13,6 @@ import { body, validationResult } from "express-validator";
 import { fileURLToPath } from "url";
 import stripeWebhookRouter from './routes/stripeWebhook.js'
 import billingRouter from './routes/billing.js'
-import { authMiddleware } from "./middleware/authMiddleware.js";
 
 // ---------- CUSTOM SERVICES & MIDDLEWARE ----------
 import { licenseContext } from "./src/middleware/licenseContext.js";
@@ -79,15 +78,34 @@ function clearAuthCookie(res) {
 function authMiddleware(req, res, next) {
   try {
     const token =
-      req.cookies?.token || req.headers.authorization?.split(" ")[1];
-    if (!token) return res.status(401).json({ error: "Unauthorized" });
+      req.cookies?.token ||
+      req.headers.authorization?.replace("Bearer ", "");
 
-    req.user = jwt.verify(token, JWT_SECRET);
+    if (!token) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    // 🔥 NORMALIZACE – TADY BYLA CHYBA
+    req.user = {
+      id: decoded.id || decoded.userId,   // ⬅️ KRITICKÉ
+      email: decoded.email,
+      role: decoded.role,
+      schoolId: decoded.schoolId ?? null,
+    };
+
+    if (!req.user.id) {
+      return res.status(401).json({ error: "Invalid token payload" });
+    }
+
     next();
   } catch (err) {
+    console.error("AUTH ERROR:", err);
     return res.status(401).json({ error: "Unauthorized" });
   }
 }
+
 
 // ---------- HEALTH ----------
 app.get("/api/health", (req, res) => {
