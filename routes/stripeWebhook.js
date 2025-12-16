@@ -45,6 +45,7 @@ router.post(
         case "invoice.paid":
         case "invoice.payment_failed": {
           const invoice = event.data.object;
+
           if (invoice.subscription) {
             const subscription = await stripe.subscriptions.retrieve(
               invoice.subscription
@@ -88,10 +89,20 @@ export default router;
 async function handleCheckoutCompleted(session) {
   if (!session.subscription || !session.metadata) return;
 
-  const { ownerType, ownerId, planCode } = session.metadata;
+  const {
+    ownerType,
+    schoolId,
+    planCode,
+    seatCount,
+  } = session.metadata;
 
   if (ownerType !== "SCHOOL" || planCode !== "TEAM") {
     console.log("ℹ️ Checkout not TEAM/SCHOOL – ignored");
+    return;
+  }
+
+  if (!schoolId) {
+    console.error("❌ Missing schoolId in checkout metadata");
     return;
   }
 
@@ -99,25 +110,27 @@ async function handleCheckoutCompleted(session) {
     session.subscription
   );
 
-  // 🔥 PRVNÍ AKTIVACE TEAM = 10 LICENCÍ
+  const seats = seatCount ? Number(seatCount) : 10;
+
+  // 🔥 PRVNÍ AKTIVACE TEAM
   await prisma.school.update({
-    where: { id: ownerId },
+    where: { id: schoolId },
     data: {
       subscriptionStatus: "ACTIVE",
       subscriptionPlan: "TEAM",
       stripeCustomerId: subscription.customer,
       stripeSubscriptionId: subscription.id,
-      seatLimit: 10, // 🔥 KLÍČOVÉ
+      seatLimit: seats,
     },
   });
 
   console.log(
-    `✅ TEAM activated for school ${ownerId} with 10 licenses`
+    `✅ TEAM activated for school ${schoolId} with ${seats} licenses`
   );
 
-  // 🔁 uložíme i do subscription tabulky
+  // 🔁 sync subscription record
   await syncSubscription(subscription, {
-    forceSeatLimit: 10,
+    forceSeatLimit: seats,
   });
 }
 
@@ -131,10 +144,16 @@ async function syncSubscription(subscription, overrides = {}) {
   const meta = subscription.metadata || {};
 
   const ownerType = meta.ownerType || "USER";
-  const ownerId = meta.ownerId;
+  const ownerId =
+    ownerType === "SCHOOL"
+      ? meta.schoolId
+      : meta.ownerId;
 
   if (!ownerId) {
-    console.error("❌ Missing ownerId in Stripe metadata");
+    console.error(
+      "❌ Missing ownerId in Stripe metadata",
+      meta
+    );
     return;
   }
 
@@ -163,7 +182,7 @@ async function syncSubscription(subscription, overrides = {}) {
 
     seatLimit:
       overrides.forceSeatLimit ??
-      (meta.seatLimit ? Number(meta.seatLimit) : null),
+      (meta.seatCount ? Number(meta.seatCount) : null),
   };
 
   await prisma.subscription.upsert({
