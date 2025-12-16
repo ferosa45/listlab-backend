@@ -693,20 +693,34 @@ app.post("/api/team/create-school", async (req, res) => {
 });
 
 
-// ---------- TEAM CHECKOUT – vytvoří Stripe Checkout Session ----------
-app.post("/api/team/checkout", async (req, res) => {
+// ---------- TEAM CHECKOUT – první aktivace TEAM licence ----------
+app.post("/api/team/checkout", authMiddleware, async (req, res) => {
   try {
-    const { schoolId, plan } = req.body; // plan = "team_monthly" | "team_yearly"
+    const { schoolId, plan } = req.body; 
+    // plan = "team_monthly" | "team_yearly"
 
     if (!schoolId || !plan) {
       return res.status(400).json({ error: "Missing schoolId or plan" });
     }
 
-    // 1) Najdeme školu
-    const school = await prisma.school.findUnique({ where: { id: schoolId } });
-    if (!school) return res.status(404).json({ error: "School not found" });
+    // 🔐 bezpečnost – jen SCHOOL_ADMIN své školy
+    if (
+      req.user.role !== "SCHOOL_ADMIN" ||
+      req.user.schoolId !== schoolId
+    ) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
-    // 2) Stripe Customer – pokud neexistuje, vytvoříme
+    // 1️⃣ Najdeme školu
+    const school = await prisma.school.findUnique({
+      where: { id: schoolId }
+    });
+
+    if (!school) {
+      return res.status(404).json({ error: "School not found" });
+    }
+
+    // 2️⃣ Stripe Customer
     let stripeCustomerId = school.stripeCustomerId;
 
     if (!stripeCustomerId) {
@@ -723,40 +737,49 @@ app.post("/api/team/checkout", async (req, res) => {
       });
     }
 
-    // 3) Určení Stripe Price
+    // 3️⃣ Stripe Price
     const priceId =
       plan === "team_yearly"
         ? process.env.STRIPE_TEAM_YEARLY_PRICE_ID
         : process.env.STRIPE_TEAM_MONTHLY_PRICE_ID;
 
     if (!priceId) {
-      return res.status(500).json({ error: "Missing TEAM price IDs in env" });
+      return res.status(500).json({ error: "Missing TEAM price IDs" });
     }
 
-    // 4) Checkout session
+    // 4️⃣ Checkout session
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: stripeCustomerId,
+      payment_method_types: ["card"],
+
       line_items: [
         {
           price: priceId,
           quantity: 1,
         },
       ],
-      success_url: `${process.env.FRONTEND_ORIGIN}/team/success?schoolId=${schoolId}`,
-      cancel_url: `${process.env.FRONTEND_ORIGIN}/team/cancel`,
+
       metadata: {
+        ownerType: "SCHOOL",
         schoolId,
-        plan,
-        ownerType: "SCHOOL"
+        planCode: "TEAM",
+        billingPeriod: plan === "team_yearly" ? "year" : "month",
+        seatCount: "10", // 🔥 PRVNÍ AKTIVACE = 10 LICENCÍ
       },
+
       subscription_data: {
         metadata: {
+          ownerType: "SCHOOL",
           schoolId,
-          plan,
-          ownerType: "SCHOOL"
-        }
-      }
+          planCode: "TEAM",
+          billingPeriod: plan === "team_yearly" ? "year" : "month",
+          seatCount: "10",
+        },
+      },
+
+      success_url: `${process.env.FRONTEND_ORIGIN}/team/success`,
+      cancel_url: `${process.env.FRONTEND_ORIGIN}/team/cancel`,
     });
 
     return res.json({ ok: true, url: session.url });
@@ -766,6 +789,7 @@ app.post("/api/team/checkout", async (req, res) => {
     return res.status(500).json({ error: "Failed to create TEAM checkout session" });
   }
 });
+
 
 // ---------- TEAM: GET MY SCHOOL ----------
 app.get("/api/team/school", authMiddleware, async (req, res) => {
