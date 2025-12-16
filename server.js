@@ -1102,6 +1102,9 @@ app.post("/api/team/start-registration", async (req, res) => {
 // ---------- CREATE SCHOOL (FREE USER) ----------
 app.post("/api/school/create", authMiddleware, async (req, res) => {
   try {
+    // 🔍 TEST – ověření, co opravdu přišlo z authMiddleware
+    console.log("CREATE SCHOOL req.user =", req.user);
+
     // ✅ authMiddleware musí dát req.user.email
     const email = req.user?.email;
 
@@ -1171,10 +1174,6 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
     res.status(500).json({ ok: false, error: "CREATE_SCHOOL_FAILED" });
   }
 });
-
-
-
-
 
 
 // ---------- WORKSHEET LOGS ----------
