@@ -1209,7 +1209,7 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
   }
 });
 
-// ---------- TEAM: GET MY SCHOOL ----------
+// ---------- TEAM: GET MY SCHOOOOL ----------
 app.get("/api/team/school", authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
