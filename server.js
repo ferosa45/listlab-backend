@@ -1399,9 +1399,10 @@ app.post(
 
       const itemId = subscription.items.data[0].id;
 
-      // 🔥 roční TEAM price
-      const yearlyPriceId = process.env.STRIPE_TEAM_YEARLY_PRICE_ID;
+      const yearlyPriceId =
+        process.env.STRIPE_TEAM_YEARLY_PRICE_ID;
 
+      // 🔥 KRITICKÁ OPRAVA
       await stripe.subscriptions.update(subscription.id, {
         items: [
           {
@@ -1409,6 +1410,7 @@ app.post(
             price: yearlyPriceId,
           },
         ],
+        billing_cycle_anchor: "now",      // 👈 TOTO TAM CHYBĚLO
         proration_behavior: "create_prorations",
       });
 
@@ -1419,6 +1421,7 @@ app.post(
     }
   }
 );
+
 
 
 
