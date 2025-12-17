@@ -1373,6 +1373,54 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
   }
 });
 
+app.post(
+  "/api/team/upgrade-to-yearly",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      if (req.user.role !== "SCHOOL_ADMIN") {
+        return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+      }
+
+      const school = await prisma.school.findUnique({
+        where: { id: req.user.schoolId },
+      });
+
+      if (!school?.stripeSubscriptionId) {
+        return res.status(400).json({
+          ok: false,
+          error: "NO_ACTIVE_SUBSCRIPTION",
+        });
+      }
+
+      const subscription = await stripe.subscriptions.retrieve(
+        school.stripeSubscriptionId
+      );
+
+      const itemId = subscription.items.data[0].id;
+
+      // 🔥 roční TEAM price
+      const yearlyPriceId = process.env.STRIPE_TEAM_YEARLY_PRICE_ID;
+
+      await stripe.subscriptions.update(subscription.id, {
+        items: [
+          {
+            id: itemId,
+            price: yearlyPriceId,
+          },
+        ],
+        proration_behavior: "create_prorations",
+      });
+
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error("UPGRADE TO YEARLY ERROR:", err);
+      res.status(500).json({ ok: false, error: "UPGRADE_FAILED" });
+    }
+  }
+);
+
+
 
 
 // ---------- WORKSHEET LOGS ----------

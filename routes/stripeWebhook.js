@@ -89,12 +89,7 @@ export default router;
 async function handleCheckoutCompleted(session) {
   if (!session.subscription || !session.metadata) return;
 
-  const {
-    ownerType,
-    schoolId,
-    planCode,
-    seatCount,
-  } = session.metadata;
+  const { ownerType, schoolId, planCode, seatCount } = session.metadata;
 
   if (ownerType !== "SCHOOL" || planCode !== "TEAM") {
     console.log("ℹ️ Checkout not TEAM/SCHOOL – ignored");
@@ -112,7 +107,6 @@ async function handleCheckoutCompleted(session) {
 
   const seats = seatCount ? Number(seatCount) : 10;
 
-  // 🔥 PRVNÍ AKTIVACE TEAM
   await prisma.school.update({
     where: { id: schoolId },
     data: {
@@ -128,7 +122,6 @@ async function handleCheckoutCompleted(session) {
     `✅ TEAM activated for school ${schoolId} with ${seats} licenses`
   );
 
-  // 🔁 sync subscription record
   await syncSubscription(subscription, {
     forceSeatLimit: seats,
   });
@@ -144,18 +137,87 @@ async function syncSubscription(subscription, overrides = {}) {
   const meta = subscription.metadata || {};
 
   const ownerType = meta.ownerType || "USER";
-  const ownerId =
-    ownerType === "SCHOOL"
-      ? meta.schoolId
-      : meta.ownerId;
+let ownerId =
+  ownerType === "SCHOOL"
+    ? meta.schoolId
+    : meta.ownerId;
 
-  if (!ownerId) {
-    console.error(
-      "❌ Missing ownerId in Stripe metadata",
-      meta
+// 🔥 FALLBACK: dohledání školy přes stripeCustomerId
+if (!ownerId && ownerType === "SCHOOL") {
+  const school = await prisma.school.findFirst({
+    where: {
+      stripeCustomerId: subscription.customer,
+    },
+  });
+
+  if (school) {
+    ownerId = school.id;
+    console.log(
+      "🧩 ownerId resolved via stripeCustomerId:",
+      ownerId
     );
-    return;
   }
+}
+
+if (!ownerId) {
+  console.error(
+    "❌ Missing ownerId after fallback",
+    meta,
+    subscription.customer
+  );
+  return;
+}
+
+
+  // --------------------------------------------------
+  // 🧠 PERIOD CALCULATION (SAFE)
+  // --------------------------------------------------
+  let periodStart =
+    overrides.periodStart ??
+    (subscription.current_period_start
+      ? new Date(subscription.current_period_start * 1000)
+      : null);
+
+  let periodEnd =
+    overrides.periodEnd ??
+    (subscription.current_period_end
+      ? new Date(subscription.current_period_end * 1000)
+      : null);
+
+  // 🔥 FALLBACK PRO ROČNÍ PLÁN
+  if (
+    !periodEnd &&
+    item.price.recurring.interval === "year" &&
+    periodStart
+  ) {
+    periodEnd = new Date(periodStart);
+    periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+
+    console.log(
+      "🧩 Yearly fallback applied:",
+      periodStart,
+      "→",
+      periodEnd
+    );
+  }
+
+  // 🔥 FALLBACK PRO MĚSÍČNÍ PLÁN
+if (
+  !periodEnd &&
+  item.price.recurring.interval === "month" &&
+  periodStart
+) {
+  periodEnd = new Date(periodStart);
+  periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+  console.log(
+    "🧩 Monthly fallback applied:",
+    periodStart,
+    "→",
+    periodEnd
+  );
+}
+
 
   const data = {
     ownerType,
@@ -167,19 +229,8 @@ async function syncSubscription(subscription, overrides = {}) {
     stripePriceId: item.price.id,
     status: subscription.status,
     cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
-
-    currentPeriodStart:
-      overrides.periodStart ??
-      (subscription.current_period_start
-        ? new Date(subscription.current_period_start * 1000)
-        : null),
-
-    currentPeriodEnd:
-      overrides.periodEnd ??
-      (subscription.current_period_end
-        ? new Date(subscription.current_period_end * 1000)
-        : null),
-
+    currentPeriodStart: periodStart,
+    currentPeriodEnd: periodEnd,
     seatLimit:
       overrides.forceSeatLimit ??
       (meta.seatCount ? Number(meta.seatCount) : null),
