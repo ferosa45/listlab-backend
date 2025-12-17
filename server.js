@@ -752,12 +752,13 @@ app.post("/api/team/create-school", async (req, res) => {
 
 
 // ---------- TEAM CHECKOUT – activation + upgrade ----------
+// ---------- TEAM CHECKOUT – FIRST ACTIVATION ONLY ----------
 app.post("/api/team/checkout", authMiddleware, async (req, res) => {
   try {
     const { schoolId, plan } = req.body;
 
     if (!schoolId || !plan) {
-      return res.status(400).json({ error: "Missing schoolId or plan" });
+      return res.status(400).json({ ok: false, error: "MISSING_PARAMS" });
     }
 
     // 🔐 pouze SCHOOL_ADMIN své školy
@@ -765,7 +766,7 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
       req.user.role !== "SCHOOL_ADMIN" ||
       req.user.schoolId !== schoolId
     ) {
-      return res.status(403).json({ error: "Forbidden" });
+      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
     }
 
     const school = await prisma.school.findUnique({
@@ -773,7 +774,15 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
     });
 
     if (!school) {
-      return res.status(404).json({ error: "School not found" });
+      return res.status(404).json({ ok: false, error: "SCHOOL_NOT_FOUND" });
+    }
+
+    // ❌ pokud už má subscription → checkout zakázán
+    if (school.stripeSubscriptionId) {
+      return res.status(400).json({
+        ok: false,
+        error: "SUBSCRIPTION_ALREADY_EXISTS",
+      });
     }
 
     // -----------------------------
@@ -804,30 +813,14 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
         : process.env.STRIPE_TEAM_MONTHLY_PRICE_ID;
 
     if (!priceId) {
-      return res.status(500).json({ error: "Missing TEAM price IDs" });
+      return res.status(500).json({
+        ok: false,
+        error: "MISSING_PRICE_ID",
+      });
     }
 
     // -----------------------------
-    // ⭐ subscription_data (upgrade safe)
-    // -----------------------------
-    const subscriptionData = {
-      metadata: {
-        ownerType: "SCHOOL",
-        schoolId,
-        planCode: "TEAM",
-        billingPeriod: plan === "team_yearly" ? "year" : "month",
-        seatCount: "10",
-      },
-    };
-
-    // 🔥 KLÍČOVÉ: pokud už má subscription → Stripe ji nahradí
-    if (school.stripeSubscriptionId) {
-      subscriptionData.existing_subscription =
-        school.stripeSubscriptionId;
-    }
-
-    // -----------------------------
-    // Checkout session
+    // Checkout session (FIRST BUY)
     // -----------------------------
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -840,7 +833,15 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
         },
       ],
 
-      subscription_data: subscriptionData,
+      subscription_data: {
+        metadata: {
+          ownerType: "SCHOOL",
+          schoolId,
+          planCode: "TEAM",
+          billingPeriod: plan === "team_yearly" ? "year" : "month",
+          seatCount: "10",
+        },
+      },
 
       success_url: `${process.env.FRONTEND_ORIGIN}/team/success`,
       cancel_url: `${process.env.FRONTEND_ORIGIN}/team/cancel`,
@@ -848,14 +849,14 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
 
     return res.json({ ok: true, url: session.url });
 
-  } catch (error) {
-    console.error("TEAM checkout error:", error);
+  } catch (err) {
+    console.error("TEAM checkout error:", err);
     return res.status(500).json({
-      error: "Failed to create TEAM checkout session",
+      ok: false,
+      error: "CHECKOUT_FAILED",
     });
   }
 });
-
 
 
 
@@ -1149,37 +1150,75 @@ app.post("/api/team/add-teacher", authMiddleware, async (req, res) => {
 });
 
 // ---------- TEAM BILLING PORTAL ----------
+// ---------- TEAM BILLING PORTAL ----------
 app.post("/api/team/billing-portal", authMiddleware, async (req, res) => {
   try {
     const user = req.user;
 
-    // musí být SCHOOL_ADMIN
+    // 🔐 pouze SCHOOL_ADMIN
     if (user.role !== "SCHOOL_ADMIN") {
-      return res.status(403).json({ error: "Only school admins can open billing portal" });
+      return res.status(403).json({
+        ok: false,
+        error: "FORBIDDEN",
+      });
     }
 
-    // načteme školu
+    if (!user.schoolId) {
+      return res.status(400).json({
+        ok: false,
+        error: "USER_HAS_NO_SCHOOL",
+      });
+    }
+
+    // 1️⃣ načteme školu
     const school = await prisma.school.findUnique({
-      where: { id: user.schoolId }
+      where: { id: user.schoolId },
+      select: {
+        id: true,
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+      },
     });
 
     if (!school || !school.stripeCustomerId) {
-      return res.status(400).json({ error: "School does not have Stripe customer" });
+      return res.status(400).json({
+        ok: false,
+        error: "SCHOOL_HAS_NO_STRIPE_CUSTOMER",
+      });
     }
 
-    // vytvoření billing portal session
+    // 2️⃣ vytvoříme billing portal session
     const session = await stripe.billingPortal.sessions.create({
       customer: school.stripeCustomerId,
+
+      // 🔁 návrat zpět do administrace školy
       return_url: `${process.env.FRONTEND_ORIGIN}/school-admin`,
+
+      // 🧠 future-proof – Stripe ví, že jde o subscription
+      flow_data: school.stripeSubscriptionId
+        ? {
+            type: "subscription_update",
+            subscription_update: {
+              subscription: school.stripeSubscriptionId,
+            },
+          }
+        : undefined,
     });
 
-    return res.json({ ok: true, url: session.url });
+    return res.json({
+      ok: true,
+      url: session.url,
+    });
 
   } catch (err) {
-    console.error("Billing portal error:", err);
-    return res.status(500).json({ error: "Failed to create billing portal session" });
+    console.error("❌ Billing portal error:", err);
+    return res.status(500).json({
+      ok: false,
+      error: "FAILED_TO_CREATE_BILLING_PORTAL",
+    });
   }
 });
+
 
 // ---------- start-registration team ----------
 app.post("/api/team/start-registration", async (req, res) => {
