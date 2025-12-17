@@ -123,48 +123,96 @@ app.post(
   body("password").isLength({ min: 6 }),
   async (req, res) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ ok: false, errors: errors.array() });
+    }
 
     const { email, password } = req.body;
 
     const exists = await prisma.user.findUnique({ where: { email } });
-    if (exists) return res.status(400).json({ error: "User exists" });
+    if (exists) {
+      return res.status(400).json({ ok: false, error: "User exists" });
+    }
 
     const hashed = await bcrypt.hash(password, 10);
 
     const newUser = await prisma.user.create({
-      data: { email, password: hashed, role: "TEACHER" },
+      data: {
+        email,
+        password: hashed,
+        role: "TEACHER",
+        schoolId: null, // 🔥 explicitně
+      },
     });
 
+    // 🔥 KRITICKÉ: schoolId MUSÍ být v JWT
     const token = jwt.sign(
-      { id: newUser.id, email: newUser.email, role: newUser.role },
+      {
+        id: newUser.id,
+        email: newUser.email,
+        role: newUser.role,
+        schoolId: newUser.schoolId ?? null,
+      },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
 
     setAuthCookie(res, token);
-    res.json({ ok: true, user: newUser });
+
+    res.json({
+      ok: true,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        role: newUser.role,
+        schoolId: newUser.schoolId,
+      },
+    });
   }
 );
+
 
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
 
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return res.status(400).json({ error: "Invalid credentials" });
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (!user) {
+    return res.status(400).json({ ok: false, error: "Invalid credentials" });
+  }
 
   const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(400).json({ error: "Invalid credentials" });
+  if (!match) {
+    return res.status(400).json({ ok: false, error: "Invalid credentials" });
+  }
 
+  // 🔥 KRITICKÉ: schoolId MUSÍ být v JWT
   const token = jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      schoolId: user.schoolId ?? null,
+    },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
 
   setAuthCookie(res, token);
-  res.json({ ok: true, user });
+
+  res.json({
+    ok: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      schoolId: user.schoolId,
+    },
+  });
 });
+
 
 // ---------- SET PASSWORD (cookie-based) ----------
 app.post("/api/auth/set-password", authMiddleware, async (req, res) => {
