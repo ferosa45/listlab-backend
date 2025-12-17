@@ -751,17 +751,16 @@ app.post("/api/team/create-school", async (req, res) => {
 });
 
 
-// ---------- TEAM CHECKOUT – první aktivace TEAM licence ----------
+// ---------- TEAM CHECKOUT – activation + upgrade ----------
 app.post("/api/team/checkout", authMiddleware, async (req, res) => {
   try {
-    const { schoolId, plan } = req.body; 
-    // plan = "team_monthly" | "team_yearly"
+    const { schoolId, plan } = req.body;
 
     if (!schoolId || !plan) {
       return res.status(400).json({ error: "Missing schoolId or plan" });
     }
 
-    // 🔐 bezpečnost – jen SCHOOL_ADMIN své školy
+    // 🔐 pouze SCHOOL_ADMIN své školy
     if (
       req.user.role !== "SCHOOL_ADMIN" ||
       req.user.schoolId !== schoolId
@@ -769,33 +768,36 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    // 1️⃣ Najdeme školu
     const school = await prisma.school.findUnique({
-      where: { id: schoolId }
+      where: { id: schoolId },
     });
 
     if (!school) {
       return res.status(404).json({ error: "School not found" });
     }
 
-    // 2️⃣ Stripe Customer
+    // -----------------------------
+    // Stripe customer
+    // -----------------------------
     let stripeCustomerId = school.stripeCustomerId;
 
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
         name: school.name,
-        metadata: { schoolId }
+        metadata: { schoolId },
       });
 
       stripeCustomerId = customer.id;
 
       await prisma.school.update({
         where: { id: schoolId },
-        data: { stripeCustomerId }
+        data: { stripeCustomerId },
       });
     }
 
-    // 3️⃣ Stripe Price
+    // -----------------------------
+    // Price ID
+    // -----------------------------
     const priceId =
       plan === "team_yearly"
         ? process.env.STRIPE_TEAM_YEARLY_PRICE_ID
@@ -805,11 +807,31 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
       return res.status(500).json({ error: "Missing TEAM price IDs" });
     }
 
-    // 4️⃣ Checkout session
+    // -----------------------------
+    // ⭐ subscription_data (upgrade safe)
+    // -----------------------------
+    const subscriptionData = {
+      metadata: {
+        ownerType: "SCHOOL",
+        schoolId,
+        planCode: "TEAM",
+        billingPeriod: plan === "team_yearly" ? "year" : "month",
+        seatCount: "10",
+      },
+    };
+
+    // 🔥 KLÍČOVÉ: pokud už má subscription → Stripe ji nahradí
+    if (school.stripeSubscriptionId) {
+      subscriptionData.existing_subscription =
+        school.stripeSubscriptionId;
+    }
+
+    // -----------------------------
+    // Checkout session
+    // -----------------------------
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: stripeCustomerId,
-      payment_method_types: ["card"],
 
       line_items: [
         {
@@ -818,23 +840,7 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
         },
       ],
 
-      metadata: {
-        ownerType: "SCHOOL",
-        schoolId,
-        planCode: "TEAM",
-        billingPeriod: plan === "team_yearly" ? "year" : "month",
-        seatCount: "10", // 🔥 PRVNÍ AKTIVACE = 10 LICENCÍ
-      },
-
-      subscription_data: {
-        metadata: {
-          ownerType: "SCHOOL",
-          schoolId,
-          planCode: "TEAM",
-          billingPeriod: plan === "team_yearly" ? "year" : "month",
-          seatCount: "10",
-        },
-      },
+      subscription_data: subscriptionData,
 
       success_url: `${process.env.FRONTEND_ORIGIN}/team/success`,
       cancel_url: `${process.env.FRONTEND_ORIGIN}/team/cancel`,
@@ -844,9 +850,13 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error("TEAM checkout error:", error);
-    return res.status(500).json({ error: "Failed to create TEAM checkout session" });
+    return res.status(500).json({
+      error: "Failed to create TEAM checkout session",
+    });
   }
 });
+
+
 
 
 // ---------- TEAM: GET MY SCHOOL ----------
@@ -1372,57 +1382,6 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
     });
   }
 });
-
-app.post(
-  "/api/team/upgrade-to-yearly",
-  authMiddleware,
-  async (req, res) => {
-    try {
-      if (req.user.role !== "SCHOOL_ADMIN") {
-        return res.status(403).json({ ok: false, error: "FORBIDDEN" });
-      }
-
-      const school = await prisma.school.findUnique({
-        where: { id: req.user.schoolId },
-      });
-
-      if (!school?.stripeSubscriptionId) {
-        return res.status(400).json({
-          ok: false,
-          error: "NO_ACTIVE_SUBSCRIPTION",
-        });
-      }
-
-      const subscription = await stripe.subscriptions.retrieve(
-        school.stripeSubscriptionId
-      );
-
-      const itemId = subscription.items.data[0].id;
-
-      const yearlyPriceId =
-        process.env.STRIPE_TEAM_YEARLY_PRICE_ID;
-
-      // 🔥 KRITICKÁ OPRAVA
-      await stripe.subscriptions.update(subscription.id, {
-        items: [
-          {
-            id: itemId,
-            price: yearlyPriceId,
-          },
-        ],
-        billing_cycle_anchor: "now",      // 👈 TOTO TAM CHYBĚLO
-        proration_behavior: "create_prorations",
-      });
-
-      return res.json({ ok: true });
-    } catch (err) {
-      console.error("UPGRADE TO YEARLY ERROR:", err);
-      res.status(500).json({ ok: false, error: "UPGRADE_FAILED" });
-    }
-  }
-);
-
-
 
 
 
