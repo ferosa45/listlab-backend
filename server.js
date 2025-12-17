@@ -1209,6 +1209,48 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------- TEAM: GET MY SCHOOL ----------
+app.get("/api/team/school", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { schoolId: true }
+    });
+
+    if (!user?.schoolId) {
+      return res.json({ ok: false, error: "USER_HAS_NO_SCHOOL" });
+    }
+
+    const school = await prisma.school.findUnique({
+      where: { id: user.schoolId },
+      include: {
+        users: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!school) {
+      return res.json({ ok: false, error: "SCHOOL_NOT_FOUND" });
+    }
+
+    return res.json({
+      ok: true,
+      school,
+    });
+
+  } catch (err) {
+    console.error("TEAM SCHOOL ERROR:", err);
+    return res.status(500).json({ ok: false });
+  }
+});
+
 
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
