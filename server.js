@@ -852,6 +852,7 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
 // ---------- TEAM: GET MY SCHOOL ----------
 app.get("/api/team/school", authMiddleware, async (req, res) => {
   try {
+    // 🔐 pouze SCHOOL_ADMIN
     if (req.user.role !== "SCHOOL_ADMIN") {
       return res.status(403).json({
         ok: false,
@@ -866,6 +867,7 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
       });
     }
 
+    // 🏫 škola + uživatelé
     const school = await prisma.school.findUnique({
       where: { id: req.user.schoolId },
       include: {
@@ -886,9 +888,49 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
       });
     }
 
+    // ⭐ AKTIVNÍ SUBSCRIPTION PRO ŠKOLU
+    const subscription = await prisma.subscription.findFirst({
+      where: {
+        ownerType: "SCHOOL",
+        ownerId: school.id,
+        status: {
+          in: ["active", "trialing", "past_due"],
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        planCode: true,
+        billingPeriod: true,          // ⭐ month / year
+        currentPeriodEnd: true,
+        seatLimit: true,
+        status: true,
+      },
+    });
+
     res.json({
       ok: true,
-      school,
+      school: {
+        ...school,
+
+        // sjednocené info (už máš část i ve school tabulce)
+        subscriptionPlan: school.subscriptionPlan,
+        subscriptionStatus: school.subscriptionStatus,
+        subscriptionUntil: school.subscriptionUntil,
+        seatLimit: school.seatLimit,
+
+        // ⭐ NOVÉ – detail subscription
+        subscription: subscription
+          ? {
+              planCode: subscription.planCode,
+              billingPeriod: subscription.billingPeriod,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+              seatLimit: subscription.seatLimit,
+              status: subscription.status,
+            }
+          : null,
+      },
     });
   } catch (err) {
     console.error("GET TEAM SCHOOL ERROR:", err);
@@ -898,6 +940,7 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 
 // ---------- Aktivuje školu po zaplacení. ----------
