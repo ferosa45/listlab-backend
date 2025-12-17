@@ -216,28 +216,38 @@ app.post("/api/auth/set-password", authMiddleware, async (req, res) => {
 
 
 app.get("/api/auth/me", authMiddleware, async (req, res) => {
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: {
-      id: true,
-      email: true,
-      role: true,
-      schoolId: true,
-      password: true
-    },
-  });
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        schoolId: true,
+        password: true, // jen pro needsPasswordSetup
+      },
+    });
 
-  res.json({
-    ok: true,
-    user: {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      schoolId: user.schoolId,
-      needsPasswordSetup: !user.password
+    if (!user) {
+      return res.status(401).json({ ok: false });
     }
-  });
+
+    return res.json({
+      ok: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        schoolId: user.schoolId,
+        needsPasswordSetup: !user.password,
+      },
+    });
+  } catch (err) {
+    console.error("AUTH ME ERROR:", err);
+    return res.status(500).json({ ok: false });
+  }
 });
+
 
 app.post("/api/auth/logout", (_req, res) => {
   clearAuthCookie(res);
