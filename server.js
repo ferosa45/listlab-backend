@@ -1303,19 +1303,22 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
 // ---------- TEAM: GET MY SCHOOOOL ----------
 app.get("/api/team/school", authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.id;
+    if (req.user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({
+        ok: false,
+        error: "FORBIDDEN",
+      });
+    }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { schoolId: true }
-    });
-
-    if (!user?.schoolId) {
-      return res.json({ ok: false, error: "USER_HAS_NO_SCHOOL" });
+    if (!req.user.schoolId) {
+      return res.status(400).json({
+        ok: false,
+        error: "USER_HAS_NO_SCHOOL",
+      });
     }
 
     const school = await prisma.school.findUnique({
-      where: { id: user.schoolId },
+      where: { id: req.user.schoolId },
       include: {
         users: {
           select: {
@@ -1324,23 +1327,52 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
             role: true,
           },
         },
+        subscriptions: {
+          orderBy: { createdAt: "desc" },
+          take: 1, // 👉 poslední aktivní subscription
+        },
       },
     });
 
     if (!school) {
-      return res.json({ ok: false, error: "SCHOOL_NOT_FOUND" });
+      return res.status(404).json({
+        ok: false,
+        error: "SCHOOL_NOT_FOUND",
+      });
     }
 
-    return res.json({
-      ok: true,
-      school,
-    });
+    const subscription = school.subscriptions?.[0] || null;
 
+    res.json({
+      ok: true,
+      school: {
+        id: school.id,
+        name: school.name,
+        seatLimit: school.seatLimit,
+        subscriptionPlan: school.subscriptionPlan,
+        subscriptionStatus: school.subscriptionStatus,
+        subscriptionUntil: school.subscriptionUntil,
+
+        subscription: subscription
+          ? {
+              billingPeriod: subscription.billingPeriod,
+              status: subscription.status,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+            }
+          : null,
+
+        users: school.users,
+      },
+    });
   } catch (err) {
-    console.error("TEAM SCHOOL ERROR:", err);
-    return res.status(500).json({ ok: false });
+    console.error("GET TEAM SCHOOL ERROR:", err);
+    res.status(500).json({
+      ok: false,
+      error: "GET_TEAM_SCHOOL_FAILED",
+    });
   }
 });
+
 
 
 // ---------- WORKSHEET LOGS ----------
