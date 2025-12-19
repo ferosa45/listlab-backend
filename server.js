@@ -1025,6 +1025,7 @@ await prisma.school.update({
     where: { stripeSubscriptionId: sub.id }
   });
 
+
   if (school) {
     await prisma.school.update({
       where: { id: school.id },
@@ -1480,6 +1481,76 @@ app.post(
   }
 );
 
+
+// ---------- UPDATE TEAM SEATS ----------
+app.post(
+  "/api/team/update-seats",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { seatCount } = req.body;
+
+      if (!seatCount || seatCount < 1) {
+        return res.status(400).json({
+          ok: false,
+          error: "INVALID_SEAT_COUNT",
+        });
+      }
+
+      if (req.user.role !== "SCHOOL_ADMIN") {
+        return res.status(403).json({
+          ok: false,
+          error: "FORBIDDEN",
+        });
+      }
+
+      const school = await prisma.school.findUnique({
+        where: { id: req.user.schoolId },
+      });
+
+      if (!school?.stripeSubscriptionId) {
+        return res.status(400).json({
+          ok: false,
+          error: "NO_ACTIVE_SUBSCRIPTION",
+        });
+      }
+
+      // 1️⃣ Načteme subscription
+      const subscription = await stripe.subscriptions.retrieve(
+        school.stripeSubscriptionId
+      );
+
+      const itemId = subscription.items.data[0].id;
+
+      // 2️⃣ Změníme quantity + vytvoříme proraci
+      await stripe.subscriptions.update(subscription.id, {
+        items: [
+          {
+            id: itemId,
+            quantity: seatCount,
+          },
+        ],
+        proration_behavior: "create_prorations",
+      });
+
+      // 3️⃣ OKAMŽITÁ FAKTURA (🔥 klíčové)
+      await stripe.invoices.create({
+        customer: subscription.customer,
+        subscription: subscription.id,
+        auto_advance: true, // Stripe ji hned zaplatí
+      });
+
+      return res.json({ ok: true });
+
+    } catch (err) {
+      console.error("UPDATE SEATS ERROR:", err);
+      return res.status(500).json({
+        ok: false,
+        error: "UPDATE_SEATS_FAILED",
+      });
+    }
+  }
+);
 
 
 
