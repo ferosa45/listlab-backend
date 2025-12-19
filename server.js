@@ -822,30 +822,32 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
     // -----------------------------
     // Checkout session (FIRST BUY)
     // -----------------------------
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      customer: stripeCustomerId,
+    const seatCount = 10; // nebo dynamicky z FE
 
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
+const session = await stripe.checkout.sessions.create({
+  mode: "subscription",
+  customer: stripeCustomerId,
 
-      subscription_data: {
-        metadata: {
-          ownerType: "SCHOOL",
-          schoolId,
-          planCode: "TEAM",
-          billingPeriod: plan === "team_yearly" ? "year" : "month",
-          seatCount: "10",
-        },
-      },
+  line_items: [
+    {
+      price: priceId,
+      quantity: seatCount, // 🔥 TADY JE TEN ZLOM
+    },
+  ],
 
-      success_url: `${process.env.FRONTEND_ORIGIN}/team/success`,
-      cancel_url: `${process.env.FRONTEND_ORIGIN}/team/cancel`,
-    });
+  subscription_data: {
+    metadata: {
+      ownerType: "SCHOOL",
+      schoolId,
+      planCode: "TEAM",
+      billingPeriod: plan === "team_yearly" ? "year" : "month",
+    },
+  },
+
+  success_url: `${process.env.FRONTEND_ORIGIN}/team/success`,
+  cancel_url: `${process.env.FRONTEND_ORIGIN}/team/cancel`,
+});
+
 
     return res.json({ ok: true, url: session.url });
 

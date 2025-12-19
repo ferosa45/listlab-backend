@@ -105,7 +105,8 @@ async function handleCheckoutCompleted(session) {
     session.subscription
   );
 
-  const seats = seatCount ? Number(seatCount) : 10;
+  const seats =
+  subscription.items.data[0]?.quantity ?? 10;
 
   await prisma.school.update({
     where: { id: schoolId },
@@ -219,22 +220,25 @@ if (
 }
 
 
-  const data = {
-    ownerType,
-    ownerId,
-    planCode: meta.planCode || "UNKNOWN",
-    billingPeriod: item.price.recurring.interval,
-    stripeCustomerId: subscription.customer,
-    stripeSubscriptionId: subscription.id,
-    stripePriceId: item.price.id,
-    status: subscription.status,
-    cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
-    currentPeriodStart: periodStart,
-    currentPeriodEnd: periodEnd,
-    seatLimit:
-      overrides.forceSeatLimit ??
-      (meta.seatCount ? Number(meta.seatCount) : null),
-  };
+  const quantity = item.quantity ?? 1;
+
+const data = {
+  ownerType,
+  ownerId,
+  planCode: meta.planCode || "UNKNOWN",
+  billingPeriod: item.price.recurring.interval,
+  stripeCustomerId: subscription.customer,
+  stripeSubscriptionId: subscription.id,
+  stripePriceId: item.price.id,
+  status: subscription.status,
+  cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
+  currentPeriodStart: periodStart,
+  currentPeriodEnd: periodEnd,
+
+  // 🔥 JEDINÝ SPRÁVNÝ ZDROJ
+  seatLimit: quantity,
+};
+
 
   await prisma.subscription.upsert({
     where: { stripeSubscriptionId: subscription.id },
