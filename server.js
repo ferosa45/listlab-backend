@@ -1506,30 +1506,33 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       });
     }
 
+    // 1️⃣ načteme subscription
     const subscription = await stripe.subscriptions.retrieve(
       school.stripeSubscriptionId
     );
 
     const itemId = subscription.items.data[0].id;
 
-    // 1️⃣ update quantity
+    // 2️⃣ update quantity + proration
     await stripe.subscriptions.update(subscription.id, {
-      items: [{ id: itemId, quantity: seatCount }],
+      items: [
+        {
+          id: itemId,
+          quantity: seatCount,
+        },
+      ],
       proration_behavior: "create_prorations",
     });
 
-    // 2️⃣ najdeme draft invoice
-    const invoices = await stripe.invoices.list({
+    // 3️⃣ 🔥 VYNUCENÉ VYTVOŘENÍ INVOICE
+    const invoice = await stripe.invoices.create({
       customer: subscription.customer,
       subscription: subscription.id,
-      status: "draft",
-      limit: 1,
+      auto_advance: true, // Stripe se ji pokusí hned zaplatit
     });
 
-    // 3️⃣ finalize → STRHNE PENÍZE
-    if (invoices.data.length > 0) {
-      await stripe.invoices.finalizeInvoice(invoices.data[0].id);
-    }
+    // 4️⃣ finalize (okamžitá platba)
+    await stripe.invoices.finalizeInvoice(invoice.id);
 
     return res.json({ ok: true });
 
@@ -1541,6 +1544,7 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 
 
