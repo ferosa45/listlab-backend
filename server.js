@@ -1438,25 +1438,29 @@ app.post(
         return res.status(403).json({ ok: false, error: "FORBIDDEN" });
       }
 
-      const school = await prisma.school.findUnique({
-        where: { id: req.user.schoolId },
+      // ✅ bereme subscription z TABULKY subscription
+      const subscription = await prisma.subscription.findFirst({
+        where: {
+          ownerType: "SCHOOL",
+          ownerId: req.user.schoolId,
+          status: "active",
+        },
       });
 
-      if (!school?.stripeSubscriptionId) {
+      if (!subscription) {
         return res.status(400).json({
           ok: false,
           error: "NO_ACTIVE_SUBSCRIPTION",
         });
       }
 
-      const subscription = await stripe.subscriptions.retrieve(
-        school.stripeSubscriptionId
+      const stripeSub = await stripe.subscriptions.retrieve(
+        subscription.stripeSubscriptionId
       );
 
-      const itemId = subscription.items.data[0].id;
+      const itemId = stripeSub.items.data[0].id;
 
-      // 🔥 klíčové: změna quantity
-      await stripe.subscriptions.update(subscription.id, {
+      await stripe.subscriptions.update(stripeSub.id, {
         items: [
           {
             id: itemId,
@@ -1473,6 +1477,7 @@ app.post(
     }
   }
 );
+
 
 
 
