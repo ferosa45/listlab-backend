@@ -663,9 +663,20 @@ app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res
 
     const user = req.user;
 
-    // Určení vlastníka (user nebo school)
-    const ownerType = user.schoolId ? "SCHOOL" : "USER";
-    const ownerId = user.schoolId || user.id;
+    // --------------------------------------------------
+    // 🔒 POJISTKA: TEAM plán vyžaduje školu
+    // --------------------------------------------------
+    if (planCode === "TEAM" && !user.schoolId) {
+      return res.status(400).json({
+        error: "SCHOOL_REQUIRED_FOR_TEAM_PLAN",
+      });
+    }
+
+    // --------------------------------------------------
+    // 🎯 VYNUTÍME OWNER PRO TEAM
+    // --------------------------------------------------
+    const ownerType = planCode === "TEAM" ? "SCHOOL" : "USER";
+    const ownerId = planCode === "TEAM" ? user.schoolId : user.id;
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -700,6 +711,7 @@ app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res
     res.status(500).json({ error: "Failed to create checkout session" });
   }
 });
+
 
 // ---------- Vytvoří draft školy (registrace školy) ----------
 app.post("/api/team/create-school", async (req, res) => {
@@ -1341,18 +1353,14 @@ app.post("/api/team/start-registration", async (req, res) => {
 // ---------- CREATE SCHOOL (FREE USER) ----------
 app.post("/api/school/create", authMiddleware, async (req, res) => {
   try {
-    // 🔍 TEST – ověření, co opravdu přišlo z authMiddleware
     console.log("CREATE SCHOOL req.user =", req.user);
 
-    // ✅ authMiddleware musí dát req.user.email
     const email = req.user?.email;
-
     if (!email) {
       return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
     }
 
     const { name } = req.body;
-
     if (!name || name.length < 3) {
       return res.status(400).json({ ok: false, error: "INVALID_NAME" });
     }
@@ -1370,26 +1378,32 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
       return res.status(400).json({ ok: false, error: "ALREADY_HAS_SCHOOL" });
     }
 
-    // 🏫 vytvoření školy
-    const school = await prisma.school.create({
-      data: {
-        name,
-        users: {
-          connect: { id: user.id },
+    // --------------------------------------------------
+    // 🏫 ATOMICKÉ VYTVOŘENÍ ŠKOLY + ADMINA
+    // --------------------------------------------------
+    const result = await prisma.$transaction(async (tx) => {
+      const school = await tx.school.create({
+        data: {
+          name,
         },
-      },
+      });
+
+      const updatedUser = await tx.user.update({
+        where: { id: user.id },
+        data: {
+          role: "SCHOOL_ADMIN",
+          schoolId: school.id,
+        },
+      });
+
+      return { school, updatedUser };
     });
 
-    // 👑 povýšení uživatele
-    const updatedUser = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        role: "SCHOOL_ADMIN",
-        schoolId: school.id,
-      },
-    });
+    const { school, updatedUser } = result;
 
+    // --------------------------------------------------
     // 🔐 NOVÝ TOKEN (KRITICKÉ)
+    // --------------------------------------------------
     const token = jwt.sign(
       {
         id: updatedUser.id,
@@ -1413,6 +1427,7 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
     res.status(500).json({ ok: false, error: "CREATE_SCHOOL_FAILED" });
   }
 });
+
 
 // ---------- TEAM: GET MY SCHOOOOL ----------
 app.get("/api/team/school", authMiddleware, async (req, res) => {
