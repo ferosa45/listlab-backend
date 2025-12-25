@@ -862,97 +862,7 @@ const session = await stripe.checkout.sessions.create({
 
 
 
-// ---------- TEAM: GET MY SCHOOL ----------
-app.get("/api/team/school", authMiddleware, async (req, res) => {
-  try {
-    // 🔐 pouze SCHOOL_ADMIN
-    if (req.user.role !== "SCHOOL_ADMIN") {
-      return res.status(403).json({
-        ok: false,
-        error: "FORBIDDEN",
-      });
-    }
 
-    if (!req.user.schoolId) {
-      return res.status(400).json({
-        ok: false,
-        error: "USER_HAS_NO_SCHOOL",
-      });
-    }
-
-    // 🏫 škola + uživatelé
-    const school = await prisma.school.findUnique({
-      where: { id: req.user.schoolId },
-      include: {
-        users: {
-          select: {
-            id: true,
-            email: true,
-            role: true,
-          },
-        },
-      },
-    });
-
-    if (!school) {
-      return res.status(404).json({
-        ok: false,
-        error: "SCHOOL_NOT_FOUND",
-      });
-    }
-
-    // ⭐ AKTIVNÍ SUBSCRIPTION PRO ŠKOLU
-    const subscription = await prisma.subscription.findFirst({
-      where: {
-        ownerType: "SCHOOL",
-        ownerId: school.id,
-        status: {
-          in: ["active", "trialing", "past_due"],
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      select: {
-        planCode: true,
-        billingPeriod: true,          // ⭐ month / year
-        currentPeriodEnd: true,
-        seatLimit: true,
-        status: true,
-      },
-    });
-
-    res.json({
-      ok: true,
-      school: {
-        ...school,
-
-        // sjednocené info (už máš část i ve school tabulce)
-        subscriptionPlan: school.subscriptionPlan,
-        subscriptionStatus: school.subscriptionStatus,
-        subscriptionUntil: school.subscriptionUntil,
-        seatLimit: school.seatLimit,
-
-        // ⭐ NOVÉ – detail subscription
-        subscription: subscription
-          ? {
-              planCode: subscription.planCode,
-              billingPeriod: subscription.billingPeriod,
-              currentPeriodEnd: subscription.currentPeriodEnd,
-              seatLimit: subscription.seatLimit,
-              status: subscription.status,
-            }
-          : null,
-      },
-    });
-  } catch (err) {
-    console.error("GET TEAM SCHOOL ERROR:", err);
-    res.status(500).json({
-      ok: false,
-      error: "GET_TEAM_SCHOOL_FAILED",
-    });
-  }
-});
 
 
 
@@ -1425,62 +1335,6 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
   }
 });
 
-// 🔼 UPDATE TEAM SEATS
-app.post(
-  "/api/team/update-seats",
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const { seatCount } = req.body;
-
-      if (!seatCount || seatCount < 1) {
-        return res.status(400).json({ ok: false, error: "INVALID_SEAT_COUNT" });
-      }
-
-      if (req.user.role !== "SCHOOL_ADMIN") {
-        return res.status(403).json({ ok: false, error: "FORBIDDEN" });
-      }
-
-      // ✅ bereme subscription z TABULKY subscription
-      const subscription = await prisma.subscription.findFirst({
-        where: {
-          ownerType: "SCHOOL",
-          ownerId: req.user.schoolId,
-          status: "active",
-        },
-      });
-
-      if (!subscription) {
-        return res.status(400).json({
-          ok: false,
-          error: "NO_ACTIVE_SUBSCRIPTION",
-        });
-      }
-
-      const stripeSub = await stripe.subscriptions.retrieve(
-        subscription.stripeSubscriptionId
-      );
-
-      const itemId = stripeSub.items.data[0].id;
-
-      await stripe.subscriptions.update(stripeSub.id, {
-        items: [
-          {
-            id: itemId,
-            quantity: seatCount,
-          },
-        ],
-        proration_behavior: "create_prorations",
-      });
-
-      return res.json({ ok: true });
-    } catch (err) {
-      console.error("UPDATE SEATS ERROR:", err);
-      res.status(500).json({ ok: false, error: "UPDATE_SEATS_FAILED" });
-    }
-  }
-);
-
 
 // ---------- UPDATE TEAM SEATS ----------
 app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
@@ -1543,6 +1397,43 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       error: "UPDATE_SEATS_FAILED",
     });
   }
+  
+});
+
+app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
+  const { seatCount } = req.body;
+
+  const school = await prisma.school.findUnique({
+    where: { id: req.user.schoolId },
+  });
+
+  const subscription = await stripe.subscriptions.retrieve(
+    school.stripeSubscriptionId
+  );
+
+  const itemId = subscription.items.data[0].id;
+
+  const invoice = await stripe.invoices.retrieveUpcoming({
+    customer: subscription.customer,
+    subscription: subscription.id,
+    subscription_items: [
+      {
+        id: itemId,
+        quantity: seatCount,
+      },
+    ],
+    subscription_proration_behavior: "create_prorations",
+  });
+
+  const proration = invoice.lines.data.find(
+    (l) => l.proration
+  );
+
+  res.json({
+    ok: true,
+    amountDueToday: proration?.amount || 0,
+    currency: invoice.currency,
+  });
 });
 
 
