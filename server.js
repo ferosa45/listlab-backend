@@ -1428,6 +1428,10 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
 // 🔼 UPDATE TEAM SEATS
 app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
   try {
+
+    // 🔎 DIAGNOSTIKA – DOČASNĚ
+    console.log("USER:", req.user);
+
     const { seatCount } = req.body;
 
     if (!seatCount || seatCount < 1) {
@@ -1441,6 +1445,9 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
     const school = await prisma.school.findUnique({
       where: { id: req.user.schoolId },
     });
+
+    // 🔎 DIAGNOSTIKA – DOČASNĚ
+    console.log("SCHOOL:", school);
 
     if (!school?.stripeSubscriptionId) {
       return res.status(400).json({
@@ -1456,7 +1463,7 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
 
     const itemId = subscription.items.data[0].id;
 
-    // 2️⃣ update quantity + proration (to je správně)
+    // 2️⃣ update quantity + proration
     await stripe.subscriptions.update(subscription.id, {
       items: [
         {
@@ -1467,7 +1474,7 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       proration_behavior: "create_prorations",
     });
 
-    // 3️⃣ 🔍 DOHLEDÁME AUTOMATICKY VYTVOŘENOU INVOICE
+    // 3️⃣ dohledáme invoice
     const invoices = await stripe.invoices.list({
       subscription: subscription.id,
       limit: 1,
@@ -1490,6 +1497,7 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 
 
