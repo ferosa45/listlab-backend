@@ -970,9 +970,12 @@ app.post(
         process.env.STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
-      console.error("Webhook signature verification failed:", err);
+      console.error("❌ Webhook signature verification failed:", err);
       return res.sendStatus(400);
     }
+
+    // 🔔 ABSOLUTNĚ KLÍČOVÝ LOG
+    console.log("🔔 STRIPE WEBHOOK RECEIVED:", event.type);
 
     // --------------------------------------------------
     // ✅ CHECKOUT COMPLETED → vytvoření TEAM subscription
@@ -980,24 +983,42 @@ app.post(
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
 
+      console.log("✅ checkout.session.completed RECEIVED");
+      console.log("📦 SESSION METADATA:", session.metadata);
+      console.log("🧾 SESSION.SUBSCRIPTION:", session.subscription);
+      console.log("👤 SESSION.CUSTOMER:", session.customer);
+
       if (session.mode === "subscription") {
         const {
           ownerType,
           ownerId,
           planCode,
           billingPeriod
-        } = session.metadata;
+        } = session.metadata || {};
+
+        console.log("➡️ PARSED METADATA:", {
+          ownerType,
+          ownerId,
+          planCode,
+          billingPeriod
+        });
 
         try {
           const stripeSub = await stripe.subscriptions.retrieve(
             session.subscription
           );
 
+          console.log("📡 STRIPE SUBSCRIPTION LOADED:", stripeSub.id);
+
           const quantity = Number(
             stripeSub.items?.data?.[0]?.quantity ?? 1
           );
 
+          console.log("👥 SEAT QUANTITY:", quantity);
+
           if (ownerType === "SCHOOL") {
+            console.log("🏫 UPDATING SCHOOL:", ownerId);
+
             await prisma.school.update({
               where: { id: ownerId },
               data: {
@@ -1011,6 +1032,10 @@ app.post(
                 seatLimit: quantity
               }
             });
+
+            console.log("✅ SCHOOL UPDATED WITH SUBSCRIPTION ID");
+          } else {
+            console.log("⚠️ ownerType IS NOT SCHOOL:", ownerType);
           }
 
           await prisma.subscription.create({
@@ -1026,8 +1051,10 @@ app.post(
             }
           });
 
+          console.log("✅ SUBSCRIPTION RECORD CREATED");
+
         } catch (e) {
-          console.error("Error updating school after checkout:", e);
+          console.error("❌ Error updating school after checkout:", e);
         }
       }
     }
@@ -1038,6 +1065,8 @@ app.post(
     if (event.type === "customer.subscription.updated") {
       const sub = event.data.object;
 
+      console.log("🔁 customer.subscription.updated:", sub.id);
+
       const quantity = Number(
         sub.items?.data?.[0]?.quantity ?? 0
       );
@@ -1045,6 +1074,8 @@ app.post(
       const school = await prisma.school.findFirst({
         where: { stripeSubscriptionId: sub.id }
       });
+
+      console.log("🏫 SCHOOL FOUND FOR UPDATE:", school?.id);
 
       if (school) {
         await prisma.school.update({
@@ -1059,7 +1090,7 @@ app.post(
         });
 
         console.log(
-          `Updated school seatLimit → ${quantity} (school: ${school.id})`
+          `✅ Updated school seatLimit → ${quantity} (school: ${school.id})`
         );
       }
     }
@@ -1069,6 +1100,8 @@ app.post(
     // --------------------------------------------------
     if (event.type === "customer.subscription.deleted") {
       const sub = event.data.object;
+
+      console.log("❌ customer.subscription.deleted:", sub.id);
 
       const school = await prisma.school.findFirst({
         where: { stripeSubscriptionId: sub.id }
@@ -1081,12 +1114,15 @@ app.post(
             subscriptionStatus: "canceled"
           }
         });
+
+        console.log("🚫 School subscription canceled:", school.id);
       }
     }
 
     res.json({ received: true });
   }
 );
+
 
 
 // ---------- Získání seznamu učitelů školy ----------
