@@ -862,7 +862,97 @@ const session = await stripe.checkout.sessions.create({
 
 
 
+// ---------- TEAM: GET MY SCHOOL ----------
+app.get("/api/team/school", authMiddleware, async (req, res) => {
+  try {
+    // 🔐 pouze SCHOOL_ADMIN
+    if (req.user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({
+        ok: false,
+        error: "FORBIDDEN",
+      });
+    }
 
+    if (!req.user.schoolId) {
+      return res.status(400).json({
+        ok: false,
+        error: "USER_HAS_NO_SCHOOL",
+      });
+    }
+
+    // 🏫 škola + uživatelé
+    const school = await prisma.school.findUnique({
+      where: { id: req.user.schoolId },
+      include: {
+        users: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!school) {
+      return res.status(404).json({
+        ok: false,
+        error: "SCHOOL_NOT_FOUND",
+      });
+    }
+
+    // ⭐ AKTIVNÍ SUBSCRIPTION PRO ŠKOLU
+    const subscription = await prisma.subscription.findFirst({
+      where: {
+        ownerType: "SCHOOL",
+        ownerId: school.id,
+        status: {
+          in: ["active", "trialing", "past_due"],
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        planCode: true,
+        billingPeriod: true,          // ⭐ month / year
+        currentPeriodEnd: true,
+        seatLimit: true,
+        status: true,
+      },
+    });
+
+    res.json({
+      ok: true,
+      school: {
+        ...school,
+
+        // sjednocené info (už máš část i ve school tabulce)
+        subscriptionPlan: school.subscriptionPlan,
+        subscriptionStatus: school.subscriptionStatus,
+        subscriptionUntil: school.subscriptionUntil,
+        seatLimit: school.seatLimit,
+
+        // ⭐ NOVÉ – detail subscription
+        subscription: subscription
+          ? {
+              planCode: subscription.planCode,
+              billingPeriod: subscription.billingPeriod,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+              seatLimit: subscription.seatLimit,
+              status: subscription.status,
+            }
+          : null,
+      },
+    });
+  } catch (err) {
+    console.error("GET TEAM SCHOOL ERROR:", err);
+    res.status(500).json({
+      ok: false,
+      error: "GET_TEAM_SCHOOL_FAILED",
+    });
+  }
+});
 
 
 
@@ -1335,6 +1425,62 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
   }
 });
 
+// 🔼 UPDATE TEAM SEATS
+app.post(
+  "/api/team/update-seats",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { seatCount } = req.body;
+
+      if (!seatCount || seatCount < 1) {
+        return res.status(400).json({ ok: false, error: "INVALID_SEAT_COUNT" });
+      }
+
+      if (req.user.role !== "SCHOOL_ADMIN") {
+        return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+      }
+
+      // ✅ bereme subscription z TABULKY subscription
+      const subscription = await prisma.subscription.findFirst({
+        where: {
+          ownerType: "SCHOOL",
+          ownerId: req.user.schoolId,
+          status: "active",
+        },
+      });
+
+      if (!subscription) {
+        return res.status(400).json({
+          ok: false,
+          error: "NO_ACTIVE_SUBSCRIPTION",
+        });
+      }
+
+      const stripeSub = await stripe.subscriptions.retrieve(
+        subscription.stripeSubscriptionId
+      );
+
+      const itemId = stripeSub.items.data[0].id;
+
+      await stripe.subscriptions.update(stripeSub.id, {
+        items: [
+          {
+            id: itemId,
+            quantity: seatCount,
+          },
+        ],
+        proration_behavior: "create_prorations",
+      });
+
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error("UPDATE SEATS ERROR:", err);
+      res.status(500).json({ ok: false, error: "UPDATE_SEATS_FAILED" });
+    }
+  }
+);
+
 
 // ---------- UPDATE TEAM SEATS ----------
 app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
@@ -1367,7 +1513,7 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
 
     const itemId = subscription.items.data[0].id;
 
-    // 2️⃣ update quantity + proration (to je správně)
+    // 2️⃣ update quantity + proration
     await stripe.subscriptions.update(subscription.id, {
       items: [
         {
@@ -1378,20 +1524,17 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       proration_behavior: "create_prorations",
     });
 
-    // 3️⃣ 🔍 DOHLEDÁME AUTOMATICKY VYTVOŘENOU INVOICE
-    const invoices = await stripe.invoices.list({
+    // 3️⃣ 🔥 VYNUCENÉ VYTVOŘENÍ INVOICE
+    const invoice = await stripe.invoices.create({
+      customer: subscription.customer,
       subscription: subscription.id,
-      limit: 1,
+      auto_advance: true, // Stripe se ji pokusí hned zaplatit
     });
 
-    const invoice = invoices.data[0] ?? null;
+    // 4️⃣ finalize (okamžitá platba)
+    await stripe.invoices.finalizeInvoice(invoice.id);
 
-    return res.json({
-      ok: true,
-      invoiceId: invoice?.id ?? null,
-      invoiceUrl: invoice?.hosted_invoice_url ?? null,
-      invoicePdf: invoice?.invoice_pdf ?? null,
-    });
+    return res.json({ ok: true });
 
   } catch (err) {
     console.error("UPDATE SEATS ERROR:", err);
@@ -1400,8 +1543,8 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       error: "UPDATE_SEATS_FAILED",
     });
   }
+  
 });
-
 
 app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
   const { seatCount } = req.body;
