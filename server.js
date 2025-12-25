@@ -1367,7 +1367,7 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
 
     const itemId = subscription.items.data[0].id;
 
-    // 2️⃣ update quantity + proration
+    // 2️⃣ update quantity + proration (to je správně)
     await stripe.subscriptions.update(subscription.id, {
       items: [
         {
@@ -1378,17 +1378,20 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       proration_behavior: "create_prorations",
     });
 
-    // 3️⃣ 🔥 VYNUCENÉ VYTVOŘENÍ INVOICE
-    const invoice = await stripe.invoices.create({
-      customer: subscription.customer,
+    // 3️⃣ 🔍 DOHLEDÁME AUTOMATICKY VYTVOŘENOU INVOICE
+    const invoices = await stripe.invoices.list({
       subscription: subscription.id,
-      auto_advance: true, // Stripe se ji pokusí hned zaplatit
+      limit: 1,
     });
 
-    // 4️⃣ finalize (okamžitá platba)
-    await stripe.invoices.finalizeInvoice(invoice.id);
+    const invoice = invoices.data[0] ?? null;
 
-    return res.json({ ok: true });
+    return res.json({
+      ok: true,
+      invoiceId: invoice?.id ?? null,
+      invoiceUrl: invoice?.hosted_invoice_url ?? null,
+      invoicePdf: invoice?.invoice_pdf ?? null,
+    });
 
   } catch (err) {
     console.error("UPDATE SEATS ERROR:", err);
@@ -1397,8 +1400,8 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       error: "UPDATE_SEATS_FAILED",
     });
   }
-  
 });
+
 
 app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
   const { seatCount } = req.body;
