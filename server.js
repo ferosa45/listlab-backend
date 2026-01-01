@@ -1554,17 +1554,7 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 
   const itemId = subscription.items.data[0].id;
 
-  const invoice = await stripe.invoices.retrieveUpcomingInvoice({
-    customer: subscription.customer,
-    subscription: subscription.id,
-    subscription_items: [
-      {
-        id: itemId,
-        quantity: seatCount,
-      },
-    ],
-    subscription_proration_behavior: "create_prorations",
-  });
+ 
 
   const proration = invoice.lines.data.find(
     (l) => l.proration
@@ -1608,17 +1598,7 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 
     const itemId = subscription.items.data[0].id;
 
-    // 🔮 PREVIEW INVOICE
-    const preview = await stripe.invoices.retrieveUpcoming({
-      customer: school.stripeCustomerId,
-      subscription: subscription.id,
-      subscription_items: [
-        {
-          id: itemId,
-          quantity: seatCount,
-        },
-      ],
-    });
+
 
     return res.json({
       ok: true,
