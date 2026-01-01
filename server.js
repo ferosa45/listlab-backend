@@ -743,7 +743,7 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
     // --------------------------------------------------
     // 📥 DATA Z FE
     // --------------------------------------------------
-    const { plan } = req.body; // team_monthly / team_yearly
+    const { plan } = req.body;
 
     if (!plan || !["team_monthly", "team_yearly"].includes(plan)) {
       return res.status(400).json({
@@ -770,10 +770,9 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
     }
 
     // --------------------------------------------------
-    // 🏫 VLASTNÍK JE VŽDY ŠKOLA
+    // 🏫 IDENTITA ŠKOLY
     // --------------------------------------------------
-    const ownerType = "SCHOOL";
-    const ownerId = user.schoolId;
+    const schoolId = user.schoolId;
 
     // --------------------------------------------------
     // 💳 STRIPE CHECKOUT SESSION
@@ -784,19 +783,21 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
       line_items: [
         {
           price: priceId,
-          quantity: 10, // výchozí počet licencí
+          quantity: 10,
         },
       ],
       metadata: {
-        ownerType,
-        ownerId,
+        ownerType: "SCHOOL",
+        ownerId: schoolId,   // může zůstat
+        schoolId: schoolId,  // 🔥 KLÍČOVÉ
         planCode: "TEAM",
         billingPeriod: plan === "team_yearly" ? "year" : "month",
       },
       subscription_data: {
         metadata: {
-          ownerType,
-          ownerId,
+          ownerType: "SCHOOL",
+          ownerId: schoolId,
+          schoolId: schoolId, // 🔥 MUSÍ BÝT I TADY
           planCode: "TEAM",
           billingPeriod: plan === "team_yearly" ? "year" : "month",
         },
@@ -818,6 +819,7 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 
 
