@@ -664,19 +664,19 @@ app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res
     const user = req.user;
 
     // --------------------------------------------------
-    // 🔒 POJISTKA: TEAM plán vyžaduje školu
+    // 🚫 TVRDÝ ZÁKAZ TEAM PLÁNU
     // --------------------------------------------------
-    if (planCode === "TEAM" && !user.schoolId) {
+    if (planCode === "TEAM") {
       return res.status(400).json({
-        error: "SCHOOL_REQUIRED_FOR_TEAM_PLAN",
+        error: "TEAM_NOT_ALLOWED_ON_THIS_ENDPOINT",
       });
     }
 
     // --------------------------------------------------
-    // 🎯 VYNUTÍME OWNER PRO TEAM
+    // 👤 TENTO ENDPOINT JE POUZE PRO USER PLÁNY
     // --------------------------------------------------
-    const ownerType = planCode === "TEAM" ? "SCHOOL" : "USER";
-    const ownerId = planCode === "TEAM" ? user.schoolId : user.id;
+    const ownerType = "USER";
+    const ownerId = user.id;
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -701,66 +701,21 @@ app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res
           billingPeriod: billingPeriod || "month",
         },
       },
-      success_url: `${process.env.FRONTEND_ORIGIN}/team/success`,
+      success_url: `${process.env.FRONTEND_ORIGIN}/billing/success`,
       cancel_url: `${process.env.FRONTEND_ORIGIN}/billing/cancel`,
     });
 
-    res.json({ url: session.url });
+    return res.json({ ok: true, url: session.url });
+
   } catch (err) {
     console.error("Checkout session error:", err);
-    res.status(500).json({ error: "Failed to create checkout session" });
+    return res.status(500).json({
+      ok: false,
+      error: "FAILED_TO_CREATE_CHECKOUT_SESSION",
+    });
   }
 });
 
-
-// ---------- Vytvoří draft školy (registrace školy) ----------
-app.post("/api/team/create-school", async (req, res) => {
-  const { name, adminEmail } = req.body;
-
-  try {
-    // Najdeme nebo vytvoříme admina
-    let user = await prisma.user.findUnique({ where: { email: adminEmail } });
-
-    if (!user) {
-      // nový uživatel = SCHOOL_ADMIN
-      user = await prisma.user.create({
-        data: {
-          email: adminEmail,
-          password: "TEMPORARY", // později reset hesla
-          role: "SCHOOL_ADMIN"
-        }
-      });
-    } else {
-      // existující user = povýšíme ho
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { role: "SCHOOL_ADMIN" }
-      });
-    }
-
-    // 1) vytvoření školy
-    const school = await prisma.school.create({
-      data: {
-        name,
-        seatLimit: 10, // DEFAULT
-      }
-    });
-
-    // 2) přiřazení admina do školy
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        schoolId: school.id
-      }
-    });
-
-    return res.json({ ok: true, schoolId: school.id });
-
-  } catch (error) {
-    console.error("create-school error:", error);
-    return res.status(500).json({ error: "Failed to create school" });
-  }
-});
 
 
 // ---------- TEAM CHECKOUT – activation + upgrade ----------
