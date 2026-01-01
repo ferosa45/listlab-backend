@@ -1550,11 +1550,6 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 
   const itemId = subscription.items.data[0].id;
 
- 
-
-  const proration = invoice.lines.data.find(
-    (l) => l.proration
-  );
 
   res.json({
     ok: true,
