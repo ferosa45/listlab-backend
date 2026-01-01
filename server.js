@@ -1501,7 +1501,7 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       proration_behavior: "create_prorations",
     });
 
-    // 3️⃣ dohledáme invoice
+    // 3️⃣ dohledáme invoiceee
     const invoices = await stripe.invoices.list({
       subscription: subscription.id,
       limit: 1,
@@ -1536,10 +1536,6 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
     });
   }
 });
-
-
-
-
 
 app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
   const { seatCount } = req.body;
