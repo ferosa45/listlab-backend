@@ -1,5 +1,4 @@
 // api/src/middleware/licenseContext.js
-import { prisma } from "../db/prisma.js";
 import { getActiveSubscriptionForUserOrSchool } from "../services/subscriptionService.js";
 
 export async function licenseContext(req, res, next) {
