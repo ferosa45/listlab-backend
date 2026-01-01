@@ -1554,7 +1554,7 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 
   const itemId = subscription.items.data[0].id;
 
-  const invoice = await stripe.invoices.retrieveUpcoming({
+  const invoice = await stripe.invoices.retrieveUpcomingInvoice({
     customer: subscription.customer,
     subscription: subscription.id,
     subscription_items: [
