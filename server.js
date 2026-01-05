@@ -1558,7 +1558,7 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 });
 
 
-// ---------- Doplatek dnes: X Kč (PRIORITA)----------
+// ---------- Doplatek dnes: XX Kč (PRIORITA)----------
 app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
   try {
     const { seatCount } = req.body;
