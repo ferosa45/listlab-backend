@@ -1553,7 +1553,6 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 
   res.json({
     ok: true,
-    amountDueToday: proration?.amount || 0,
     currency: invoice.currency,
   });
 });
