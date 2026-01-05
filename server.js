@@ -1558,64 +1558,6 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 });
 
 
-// ---------- Doplatek dnes: XX Kč (PRIORITA)----------
-app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
-  try {
-    const { seatCount } = req.body;
-
-    if (!seatCount || seatCount < 1) {
-      return res.status(400).json({ ok: false, error: "INVALID_SEAT_COUNT" });
-    }
-
-    if (req.user.role !== "SCHOOL_ADMIN" || !req.user.schoolId) {
-      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
-    }
-
-    const school = await prisma.school.findUnique({
-      where: { id: req.user.schoolId },
-    });
-
-    if (!school?.stripeSubscriptionId || !school.stripeCustomerId) {
-      return res.status(400).json({
-        ok: false,
-        error: "NO_ACTIVE_SUBSCRIPTION",
-      });
-    }
-
-    const subscription = await stripe.subscriptions.retrieve(
-      school.stripeSubscriptionId
-    );
-
-    const itemId = subscription.items.data[0].id;
-
-    // 🔥 TADY CHYBĚLO – VÝPOČET PREVIEW
-    const preview = await stripe.invoices.retrieveUpcoming({
-      customer: school.stripeCustomerId,
-      subscription: school.stripeSubscriptionId,
-      subscription_items: [
-        {
-          id: itemId,
-          quantity: seatCount,
-        },
-      ],
-    });
-
-    return res.json({
-      ok: true,
-      amountDue: preview.amount_due,
-      currency: preview.currency,
-    });
-  } catch (err) {
-    console.error("PREVIEW SEAT CHANGE ERROR:", err);
-    return res.status(500).json({
-      ok: false,
-      error: "PREVIEW_FAILED",
-    });
-  }
-});
-
-
-
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
