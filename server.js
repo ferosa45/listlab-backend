@@ -1589,16 +1589,22 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 
     const itemId = subscription.items.data[0].id;
 
-
+    // 🔥 TADY CHYBĚLO – VÝPOČET PREVIEW
+    const preview = await stripe.invoices.retrieveUpcoming({
+      customer: school.stripeCustomerId,
+      subscription: school.stripeSubscriptionId,
+      subscription_items: [
+        {
+          id: itemId,
+          quantity: seatCount,
+        },
+      ],
+    });
 
     return res.json({
       ok: true,
       amountDue: preview.amount_due,
       currency: preview.currency,
-      lines: preview.lines.data.map((l) => ({
-        description: l.description,
-        amount: l.amount,
-      })),
     });
   } catch (err) {
     console.error("PREVIEW SEAT CHANGE ERROR:", err);
@@ -1608,6 +1614,7 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 
 // ---------- WORKSHEET LOGS ----------
