@@ -1455,8 +1455,6 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
 // 🔼 UPDATE TEAM SEATS
 app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
   try {
-
-    // 🔎 DIAGNOSTIKA – DOČASNĚ
     console.log("USER:", req.user);
 
     const { seatCount } = req.body;
@@ -1473,7 +1471,6 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       where: { id: req.user.schoolId },
     });
 
-    // 🔎 DIAGNOSTIKA – DOČASNĚ
     console.log("SCHOOL:", school);
 
     if (!school?.stripeSubscriptionId) {
@@ -1488,9 +1485,14 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
       school.stripeSubscriptionId
     );
 
-    const itemId = subscription.items.data[0].id;
+    const item = subscription.items.data[0];
+    const itemId = item.id;
+    const currentQuantity = item.quantity;
 
-    // 2️⃣ update quantity + proration
+    // 🔥 ROZHODNUTÍ: zvyšujeme nebo snižujeme?
+    const isDecrease = seatCount < currentQuantity;
+
+    // 2️⃣ update quantity
     await stripe.subscriptions.update(subscription.id, {
       items: [
         {
@@ -1498,36 +1500,39 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
           quantity: seatCount,
         },
       ],
-      proration_behavior: "create_prorations",
+      proration_behavior: isDecrease
+        ? "none"               // 🔽 snížení → bez refundu
+        : "create_prorations", // 🔼 zvýšení → okamžitý doplatek
     });
 
-    // 3️⃣ dohledáme invoiceee
-    const invoices = await stripe.invoices.list({
-      subscription: subscription.id,
-      limit: 1,
+    // 3️⃣ pokud jsme zvyšovali, dohledáme invoice
+    let invoice = null;
+
+    if (!isDecrease) {
+      const invoices = await stripe.invoices.list({
+        subscription: subscription.id,
+        limit: 1,
+      });
+
+      invoice = invoices.data[0] ?? null;
+    }
+
+    return res.json({
+      ok: true,
+      isDecrease,
+
+      invoice: invoice
+        ? {
+            id: invoice.id,
+            hostedUrl: invoice.hosted_invoice_url,
+            pdfUrl: invoice.invoice_pdf,
+            amountPaid: invoice.amount_paid,
+            amountDue: invoice.amount_due,
+            currency: invoice.currency,
+            status: invoice.status,
+          }
+        : null,
     });
-
-    const invoice = invoices.data[0] ?? null;
-
- return res.json({
-  ok: true,
-
-  invoice: invoice
-    ? {
-        id: invoice.id,
-        hostedUrl: invoice.hosted_invoice_url,
-        pdfUrl: invoice.invoice_pdf,
-
-        // 🔥 užitečné pro UI
-        amountPaid: invoice.amount_paid,
-        amountDue: invoice.amount_due,
-        currency: invoice.currency,
-        status: invoice.status,
-      }
-    : null,
-});
-
-
   } catch (err) {
     console.error("UPDATE SEATS ERROR:", err);
     return res.status(500).json({
@@ -1536,6 +1541,7 @@ app.post("/api/team/update-seats", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
   const { seatCount } = req.body;
