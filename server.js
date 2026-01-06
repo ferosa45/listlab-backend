@@ -1723,7 +1723,7 @@ app.get("/api/team/billing", authMiddleware, async (req, res) => {
   }
 });
 
-// ---------- Uloží údaje do DB a případně je pošle do Stripe. ----------
+// ---------- Uloží údaje do DBB a případně je pošle do Stripe. ----------
 app.post("/api/team/billing", authMiddleware, async (req, res) => {
   try {
     const user = req.user;
