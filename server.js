@@ -885,28 +885,41 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
     });
 
     res.json({
-      ok: true,
-      school: {
-        ...school,
+  ok: true,
+  school: {
+    ...school,
 
-        // sjednocené info (už máš část i ve school tabulce)
-        subscriptionPlan: school.subscriptionPlan,
-        subscriptionStatus: school.subscriptionStatus,
-        subscriptionUntil: school.subscriptionUntil,
-        seatLimit: school.seatLimit,
+    // sjednocené info
+    subscriptionPlan: school.subscriptionPlan,
+    subscriptionStatus: school.subscriptionStatus,
+    subscriptionUntil: school.subscriptionUntil,
+    seatLimit: school.seatLimit,
 
-        // ⭐ NOVÉ – detail subscription
-        subscription: subscription
-          ? {
-              planCode: subscription.planCode,
-              billingPeriod: subscription.billingPeriod,
-              currentPeriodEnd: subscription.currentPeriodEnd,
-              seatLimit: subscription.seatLimit,
-              status: subscription.status,
-            }
-          : null,
-      },
-    });
+    // detail subscription
+    subscription: subscription
+      ? {
+          planCode: subscription.planCode,
+          billingPeriod: subscription.billingPeriod,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          seatLimit: subscription.seatLimit,
+          status: subscription.status,
+        }
+      : null,
+
+    // ⭐ FAKTURAČNÍ ÚDAJE – SPRÁVNĚ TADY
+    billing: {
+      name: school.billingName,
+      street: school.billingStreet,
+      city: school.billingCity,
+      zip: school.billingZip,
+      country: school.billingCountry,
+      ico: school.billingIco,
+      dic: school.billingDic,
+      email: school.billingEmail,
+    },
+  },
+});
+
   } catch (err) {
     console.error("GET TEAM SCHOOL ERROR:", err);
     res.status(500).json({
@@ -1630,6 +1643,45 @@ app.get("/api/team/invoices", authMiddleware, async (req, res) => {
       ok: false,
       error: "FAILED_TO_LOAD_INVOICES",
     });
+  }
+});
+
+// ---------- API – uložení fakturačních údajů ----------
+app.post("/api/team/billing-details", authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+    }
+
+    const {
+      billingName,
+      billingStreet,
+      billingCity,
+      billingZip,
+      billingCountry,
+      billingIco,
+      billingDic,
+      billingEmail,
+    } = req.body;
+
+    await prisma.school.update({
+      where: { id: req.user.schoolId },
+      data: {
+        billingName,
+        billingStreet,
+        billingCity,
+        billingZip,
+        billingCountry,
+        billingIco,
+        billingDic,
+        billingEmail,
+      },
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("BILLING DETAILS ERROR:", err);
+    res.status(500).json({ ok: false, error: "SAVE_FAILED" });
   }
 });
 

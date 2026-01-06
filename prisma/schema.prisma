@@ -36,6 +36,15 @@ model School {
   seatLimit            Int?                  // počet učitelů, např. 10 seats
   license              License?
   users                User[]
+  // 🔥 FAKTURAČNÍ ÚDAJE
+  billingName           String?
+  billingStreet         String?
+  billingCity           String?
+  billingZip            String?
+  billingCountry        String?
+  billingIco            String?
+  billingDic            String?
+  billingEmail          String?
 }
 
 model License {
