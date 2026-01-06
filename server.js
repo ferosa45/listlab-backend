@@ -1583,7 +1583,6 @@ app.get("/api/team/invoices", authMiddleware, async (req, res) => {
   try {
     const user = req.user;
 
-    // 🔐 pouze SCHOOL_ADMIN
     if (user.role !== "SCHOOL_ADMIN") {
       return res.status(403).json({
         ok: false,
@@ -1598,7 +1597,6 @@ app.get("/api/team/invoices", authMiddleware, async (req, res) => {
       });
     }
 
-    // 1️⃣ načteme školu
     const school = await prisma.school.findUnique({
       where: { id: user.schoolId },
       select: {
@@ -1606,20 +1604,19 @@ app.get("/api/team/invoices", authMiddleware, async (req, res) => {
       },
     });
 
+    // 🔑 škola ještě nikdy neplatila → žádné faktury
     if (!school?.stripeCustomerId) {
-      return res.status(400).json({
-        ok: false,
-        error: "SCHOOL_HAS_NO_STRIPE_CUSTOMER",
+      return res.json({
+        ok: true,
+        invoices: [],
       });
     }
 
-    // 2️⃣ Stripe – seznam faktur
     const invoices = await stripe.invoices.list({
       customer: school.stripeCustomerId,
       limit: 20,
     });
 
-    // 3️⃣ normalizovaný výstup pro frontend
     const formatted = invoices.data.map((inv) => ({
       id: inv.id,
       number: inv.number,
@@ -1636,7 +1633,6 @@ app.get("/api/team/invoices", authMiddleware, async (req, res) => {
       ok: true,
       invoices: formatted,
     });
-
   } catch (err) {
     console.error("❌ GET INVOICES ERROR:", err);
     return res.status(500).json({
@@ -1645,6 +1641,7 @@ app.get("/api/team/invoices", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 // ---------- API – uložení fakturačních údajů ----------
 app.post("/api/team/billing-details", authMiddleware, async (req, res) => {
