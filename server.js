@@ -1564,6 +1564,76 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 });
 
 
+// ---------- zobrazení faktury ----------
+
+app.get("/api/team/invoices", authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+
+    // 🔐 pouze SCHOOL_ADMIN
+    if (user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({
+        ok: false,
+        error: "FORBIDDEN",
+      });
+    }
+
+    if (!user.schoolId) {
+      return res.status(400).json({
+        ok: false,
+        error: "USER_HAS_NO_SCHOOL",
+      });
+    }
+
+    // 1️⃣ načteme školu
+    const school = await prisma.school.findUnique({
+      where: { id: user.schoolId },
+      select: {
+        stripeCustomerId: true,
+      },
+    });
+
+    if (!school?.stripeCustomerId) {
+      return res.status(400).json({
+        ok: false,
+        error: "SCHOOL_HAS_NO_STRIPE_CUSTOMER",
+      });
+    }
+
+    // 2️⃣ Stripe – seznam faktur
+    const invoices = await stripe.invoices.list({
+      customer: school.stripeCustomerId,
+      limit: 20,
+    });
+
+    // 3️⃣ normalizovaný výstup pro frontend
+    const formatted = invoices.data.map((inv) => ({
+      id: inv.id,
+      number: inv.number,
+      status: inv.status,
+      amountPaid: inv.amount_paid,
+      amountDue: inv.amount_due,
+      currency: inv.currency,
+      hostedUrl: inv.hosted_invoice_url,
+      pdfUrl: inv.invoice_pdf,
+      createdAt: new Date(inv.created * 1000),
+    }));
+
+    return res.json({
+      ok: true,
+      invoices: formatted,
+    });
+
+  } catch (err) {
+    console.error("❌ GET INVOICES ERROR:", err);
+    return res.status(500).json({
+      ok: false,
+      error: "FAILED_TO_LOAD_INVOICES",
+    });
+  }
+});
+
+
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
