@@ -1682,6 +1682,130 @@ app.post("/api/team/billing-details", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------- Vrátí fakturační údaje školy (pro předvyplnění formuláře). ----------
+
+app.get("/api/team/billing", authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+
+    if (user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+    }
+
+    if (!user.schoolId) {
+      return res.status(400).json({ ok: false, error: "USER_HAS_NO_SCHOOL" });
+    }
+
+    const school = await prisma.school.findUnique({
+      where: { id: user.schoolId },
+      select: {
+        billingName: true,
+        billingStreet: true,
+        billingCity: true,
+        billingZip: true,
+        billingCountry: true,
+        billingIco: true,
+        billingDic: true,
+        billingEmail: true,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      billing: school,
+    });
+  } catch (err) {
+    console.error("GET BILLING ERROR:", err);
+    return res.status(500).json({
+      ok: false,
+      error: "GET_BILLING_FAILED",
+    });
+  }
+});
+
+// ---------- Uloží údaje do DB a případně je pošle do Stripe. ----------
+app.post("/api/team/billing", authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+
+    if (user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+    }
+
+    if (!user.schoolId) {
+      return res.status(400).json({ ok: false, error: "USER_HAS_NO_SCHOOL" });
+    }
+
+    const {
+      billingName,
+      billingStreet,
+      billingCity,
+      billingZip,
+      billingCountry,
+      billingIco,
+      billingDic,
+      billingEmail,
+    } = req.body;
+
+    // minimální validace
+    if (!billingName || !billingStreet || !billingCity || !billingZip || !billingCountry) {
+      return res.status(400).json({
+        ok: false,
+        error: "MISSING_REQUIRED_FIELDS",
+      });
+    }
+
+    // 1️⃣ uložíme do DB
+    const school = await prisma.school.update({
+      where: { id: user.schoolId },
+      data: {
+        billingName,
+        billingStreet,
+        billingCity,
+        billingZip,
+        billingCountry,
+        billingIco,
+        billingDic,
+        billingEmail,
+      },
+      select: {
+        stripeCustomerId: true,
+      },
+    });
+
+    // 2️⃣ pokud existuje Stripe customer → sync
+    if (school.stripeCustomerId) {
+      try {
+        await stripe.customers.update(school.stripeCustomerId, {
+          name: billingName,
+          email: billingEmail || undefined,
+          address: {
+            line1: billingStreet,
+            city: billingCity,
+            postal_code: billingZip,
+            country: billingCountry,
+          },
+          metadata: {
+            ico: billingIco || "",
+            dic: billingDic || "",
+          },
+        });
+      } catch (stripeErr) {
+        // Stripe chyba NESMÍ shodit API
+        console.warn("⚠️ Stripe customer update failed:", stripeErr.message);
+      }
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("SAVE BILLING ERROR:", err);
+    return res.status(500).json({
+      ok: false,
+      error: "SAVE_BILLING_FAILED",
+    });
+  }
+});
+
 
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
