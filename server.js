@@ -1290,7 +1290,7 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
       billingEmail,
     } = req.body;
 
-    // ✅ minimální validace (BEZ DIČ)
+    // minimální validace
     if (
       !billingName ||
       !billingStreet ||
@@ -1304,8 +1304,8 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
       });
     }
 
-    // 1️⃣ uložení do DB
-    const school = await prisma.school.update({
+    // ✅ pouze uložení do DB
+    await prisma.school.update({
       where: { id: user.schoolId },
       data: {
         billingName,
@@ -1316,67 +1316,7 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
         billingIco,
         billingEmail,
       },
-      select: {
-        stripeCustomerId: true,
-      },
     });
-
-    let stripeCustomerId = school.stripeCustomerId;
-
-// ⭐ pokud customer ještě neexistuje → vytvoříme ho
-if (!stripeCustomerId) {
-  const customer = await stripe.customers.create({
-    name: billingName,
-    email: billingEmail || undefined,
-    address: {
-      line1: billingStreet,
-      city: billingCity,
-      postal_code: billingZip,
-      country: billingCountry,
-    },
-    metadata: {
-      schoolId: user.schoolId,
-      ico: billingIco || "",
-    },
-  });
-
-  stripeCustomerId = customer.id;
-
-  // uložíme ID do DB
-  await prisma.school.update({
-    where: { id: user.schoolId },
-    data: {
-      stripeCustomerId,
-    },
-  });
-}
-
-
-    // 2️⃣ sync do Stripe (jen BUSINESS údaje)
-    // 2️⃣ sync do Stripe (jen BUSINESS údaje)
-if (stripeCustomerId) {
-  try {
-    await stripe.customers.update(stripeCustomerId, {
-      name: billingName,
-      email: billingEmail || undefined,
-      address: {
-        line1: billingStreet,
-        city: billingCity,
-        postal_code: billingZip,
-        country: billingCountry,
-      },
-      metadata: {
-        ico: billingIco || "",
-      },
-    });
-  } catch (stripeErr) {
-    console.warn(
-      "⚠️ Stripe customer update failed:",
-      stripeErr.message
-    );
-  }
-}
-
 
     return res.json({ ok: true });
   } catch (err) {
@@ -1387,6 +1327,7 @@ if (stripeCustomerId) {
     });
   }
 });
+
 
 
 
@@ -1705,9 +1646,6 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
     currency: invoice.currency,
   });
 });
-
-
-
 
 
 // ---------- API – uložení fakturačních údajů ----------
