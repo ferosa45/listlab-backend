@@ -877,57 +877,68 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
       },
       select: {
         planCode: true,
-        billingPeriod: true,          // ⭐ month / year
+        billingPeriod: true, // month / year
         currentPeriodEnd: true,
         seatLimit: true,
         status: true,
       },
     });
 
-    res.json({
-  ok: true,
-  school: {
-    ...school,
+    // ⭐ NOVÉ: má škola vyplněné povinné fakturační údaje?
+    const hasBillingDetails =
+      !!school.billingName &&
+      !!school.billingStreet &&
+      !!school.billingCity &&
+      !!school.billingZip &&
+      !!school.billingCountry;
 
-    // sjednocené info
-    subscriptionPlan: school.subscriptionPlan,
-    subscriptionStatus: school.subscriptionStatus,
-    subscriptionUntil: school.subscriptionUntil,
-    seatLimit: school.seatLimit,
+    return res.json({
+      ok: true,
+      school: {
+        ...school,
 
-    // detail subscription
-    subscription: subscription
-      ? {
-          planCode: subscription.planCode,
-          billingPeriod: subscription.billingPeriod,
-          currentPeriodEnd: subscription.currentPeriodEnd,
-          seatLimit: subscription.seatLimit,
-          status: subscription.status,
-        }
-      : null,
+        // sjednocené info
+        subscriptionPlan: school.subscriptionPlan,
+        subscriptionStatus: school.subscriptionStatus,
+        subscriptionUntil: school.subscriptionUntil,
+        seatLimit: school.seatLimit,
 
-    // ⭐ FAKTURAČNÍ ÚDAJE – SPRÁVNĚ TADY
-    billing: {
-      name: school.billingName,
-      street: school.billingStreet,
-      city: school.billingCity,
-      zip: school.billingZip,
-      country: school.billingCountry,
-      ico: school.billingIco,
-      dic: school.billingDic,
-      email: school.billingEmail,
-    },
-  },
-});
+        // detail subscription
+        subscription: subscription
+          ? {
+              planCode: subscription.planCode,
+              billingPeriod: subscription.billingPeriod,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+              seatLimit: subscription.seatLimit,
+              status: subscription.status,
+            }
+          : null,
 
+        // ⭐ FLAG PRO FRONTEND
+        hasBillingDetails,
+
+        // ⭐ FAKTURAČNÍ ÚDAJE
+        billing: {
+          name: school.billingName,
+          street: school.billingStreet,
+          city: school.billingCity,
+          zip: school.billingZip,
+          country: school.billingCountry,
+          ico: school.billingIco,
+          dic: school.billingDic,
+          email: school.billingEmail,
+        },
+      },
+    });
   } catch (err) {
     console.error("GET TEAM SCHOOL ERROR:", err);
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
       error: "GET_TEAM_SCHOOL_FAILED",
     });
   }
 });
+
 
 
 
