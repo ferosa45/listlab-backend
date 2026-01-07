@@ -1102,6 +1102,75 @@ app.post(
       }
     }
 
+    // --------------------------------------------------
+// 🧾 FAKTURA ZAPLACENA → vytvoření INTERNÍ FAKTURY
+// --------------------------------------------------
+if (event.type === "invoice.paid") {
+  const invoice = event.data.object;
+
+  console.log("🧾 invoice.paid:", invoice.id);
+
+  // 🔁 idempotence
+  const existing = await prisma.invoice.findUnique({
+    where: { stripeInvoiceId: invoice.id },
+  });
+
+  if (existing) {
+  console.log("↩️ Invoice already exists, skipping");
+  return; // ✅ jen return, žádná odpověď
+}
+
+
+  // 🏫 najdeme školu
+  const school = await prisma.school.findFirst({
+    where: {
+      stripeCustomerId: invoice.customer,
+    },
+  });
+
+  if (!school) {
+    console.warn("⚠️ No school for invoice:", invoice.id);
+    return res.json({ received: true });
+  }
+
+  // 📦 položky
+  const items = invoice.lines.data.map((l) => ({
+    description: l.description,
+    quantity: l.quantity ?? 1,
+    amount: l.amount,
+  }));
+
+  // 🧾 vytvoření vlastní faktury
+  await prisma.invoice.create({
+    data: {
+      stripeInvoiceId: invoice.id,
+      stripeSubscriptionId: invoice.subscription,
+      stripeCustomerId: invoice.customer,
+      number: invoice.number,
+      status: "PAID",
+      amountPaid: invoice.amount_paid,
+      currency: invoice.currency,
+      issuedAt: new Date(invoice.created * 1000),
+
+      schoolId: school.id,
+
+      // 🔥 SNAPSHOT FAKTURAČNÍCH ÚDAJŮ
+      billingName: school.billingName,
+      billingStreet: school.billingStreet,
+      billingCity: school.billingCity,
+      billingZip: school.billingZip,
+      billingCountry: school.billingCountry,
+      billingIco: school.billingIco,
+      billingEmail: school.billingEmail,
+
+      items,
+    },
+  });
+
+  console.log("✅ Internal invoice created:", invoice.number);
+}
+
+
     res.json({ received: true });
   }
 );
