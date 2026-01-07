@@ -1252,29 +1252,62 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
       },
     });
 
+    let stripeCustomerId = school.stripeCustomerId;
+
+// ⭐ pokud customer ještě neexistuje → vytvoříme ho
+if (!stripeCustomerId) {
+  const customer = await stripe.customers.create({
+    name: billingName,
+    email: billingEmail || undefined,
+    address: {
+      line1: billingStreet,
+      city: billingCity,
+      postal_code: billingZip,
+      country: billingCountry,
+    },
+    metadata: {
+      schoolId: user.schoolId,
+      ico: billingIco || "",
+    },
+  });
+
+  stripeCustomerId = customer.id;
+
+  // uložíme ID do DB
+  await prisma.school.update({
+    where: { id: user.schoolId },
+    data: {
+      stripeCustomerId,
+    },
+  });
+}
+
+
     // 2️⃣ sync do Stripe (jen BUSINESS údaje)
-    if (school.stripeCustomerId) {
-      try {
-        await stripe.customers.update(school.stripeCustomerId, {
-          name: billingName,
-          email: billingEmail || undefined,
-          address: {
-            line1: billingStreet,
-            city: billingCity,
-            postal_code: billingZip,
-            country: billingCountry,
-          },
-          metadata: {
-            ico: billingIco || "",
-          },
-        });
-      } catch (stripeErr) {
-        console.warn(
-          "⚠️ Stripe customer update failed:",
-          stripeErr.message
-        );
-      }
-    }
+    // 2️⃣ sync do Stripe (jen BUSINESS údaje)
+if (stripeCustomerId) {
+  try {
+    await stripe.customers.update(stripeCustomerId, {
+      name: billingName,
+      email: billingEmail || undefined,
+      address: {
+        line1: billingStreet,
+        city: billingCity,
+        postal_code: billingZip,
+        country: billingCountry,
+      },
+      metadata: {
+        ico: billingIco || "",
+      },
+    });
+  } catch (stripeErr) {
+    console.warn(
+      "⚠️ Stripe customer update failed:",
+      stripeErr.message
+    );
+  }
+}
+
 
     return res.json({ ok: true });
   } catch (err) {
