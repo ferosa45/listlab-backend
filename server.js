@@ -1735,7 +1735,7 @@ app.get("/api/team/billing", authMiddleware, async (req, res) => {
 });
 
 // ---------- Uloží údaje do DBB a případně je pošle do Stripe. ----------
-app.post("/api/team/billing", authMiddleware, async (req, res) => {
+app.post("/api/team/billing", authMiddleware, async (req, res) => { 
   try {
     const user = req.user;
 
@@ -1801,6 +1801,28 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
             dic: billingDic || "",
           },
         });
+
+        // ⭐ DOPLNĚNO: DIČ do Stripe Tax ID (zobrazí se na faktuře)
+        if (billingDic) {
+          const existingTaxIds = await stripe.customers.listTaxIds(
+            school.stripeCustomerId
+          );
+
+          const hasVat = existingTaxIds.data.some(
+            (t) => t.type === "eu_vat"
+          );
+
+          if (!hasVat) {
+            await stripe.customers.createTaxId(
+              school.stripeCustomerId,
+              {
+                type: "eu_vat",
+                value: billingDic,
+              }
+            );
+          }
+        }
+
       } catch (stripeErr) {
         // Stripe chyba NESMÍ shodit API
         console.warn("⚠️ Stripe customer update failed:", stripeErr.message);
@@ -1816,6 +1838,7 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 
 // ---------- WORKSHEET LOGS ----------
