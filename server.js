@@ -1758,7 +1758,6 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
       billingEmail,
     } = req.body;
 
-    // minimální validace
     if (!billingName || !billingStreet || !billingCity || !billingZip || !billingCountry) {
       return res.status(400).json({
         ok: false,
@@ -1766,7 +1765,7 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
       });
     }
 
-    // 1️⃣ uložíme do DB
+    // 1️⃣ DB
     const school = await prisma.school.update({
       where: { id: user.schoolId },
       data: {
@@ -1784,9 +1783,10 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
       },
     });
 
-    // 2️⃣ pokud existuje Stripe customer → sync
+    // 2️⃣ Stripe
     if (school.stripeCustomerId) {
       try {
+        // customer info
         await stripe.customers.update(school.stripeCustomerId, {
           name: billingName,
           email: billingEmail || undefined,
@@ -1802,34 +1802,35 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
           },
         });
 
-        // ⭐ DOPLNĚNO: DIČ do Stripe Tax ID (zobrazí se na faktuře)
+        // ⭐ JEDINÉ MÍSTO PRO TAX ID
         if (billingDic) {
-          const existingTaxIds = await stripe.customers.listTaxIds(
+          const existing = await stripe.customers.listTaxIds(
             school.stripeCustomerId
           );
 
-          const hasVat = existingTaxIds.data.some(
-            (t) => t.type === "eu_vat"
-          );
-
-          if (!hasVat) {
-            await stripe.customers.createTaxId(
+          for (const taxId of existing.data) {
+            await stripe.customers.deleteTaxId(
               school.stripeCustomerId,
-              {
-                type: "eu_vat",
-                value: billingDic,
-              }
+              taxId.id
             );
           }
+
+          await stripe.customers.createTaxId(
+            school.stripeCustomerId,
+            {
+              type: "eu_vat",
+              value: billingDic,
+            }
+          );
         }
 
       } catch (stripeErr) {
-        // Stripe chyba NESMÍ shodit API
-        console.warn("⚠️ Stripe customer update failed:", stripeErr.message);
+        console.warn("⚠️ Stripe update failed:", stripeErr.message);
       }
     }
 
     return res.json({ ok: true });
+
   } catch (err) {
     console.error("SAVE BILLING ERROR:", err);
     return res.status(500).json({
@@ -1838,6 +1839,7 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 
 
