@@ -1202,73 +1202,93 @@ app.post("/api/team/add-teacher", authMiddleware, async (req, res) => {
 
 // ---------- TEAM BILLING PORTAL ----------
 // ---------- TEAM BILLING PORTAL ----------
-app.post("/api/team/billing-portal", authMiddleware, async (req, res) => {
+app.post("/api/team/billing", authMiddleware, async (req, res) => {
   try {
     const user = req.user;
 
-    // 🔐 pouze SCHOOL_ADMIN
     if (user.role !== "SCHOOL_ADMIN") {
-      return res.status(403).json({
-        ok: false,
-        error: "FORBIDDEN",
-      });
+      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
     }
 
     if (!user.schoolId) {
+      return res.status(400).json({ ok: false, error: "USER_HAS_NO_SCHOOL" });
+    }
+
+    const {
+      billingName,
+      billingStreet,
+      billingCity,
+      billingZip,
+      billingCountry,
+      billingIco,
+      billingEmail,
+    } = req.body;
+
+    // ✅ minimální validace (BEZ DIČ)
+    if (
+      !billingName ||
+      !billingStreet ||
+      !billingCity ||
+      !billingZip ||
+      !billingCountry
+    ) {
       return res.status(400).json({
         ok: false,
-        error: "USER_HAS_NO_SCHOOL",
+        error: "MISSING_REQUIRED_FIELDS",
       });
     }
 
-    // 1️⃣ načteme školu
-    const school = await prisma.school.findUnique({
+    // 1️⃣ uložení do DB
+    const school = await prisma.school.update({
       where: { id: user.schoolId },
+      data: {
+        billingName,
+        billingStreet,
+        billingCity,
+        billingZip,
+        billingCountry,
+        billingIco,
+        billingEmail,
+      },
       select: {
-        id: true,
         stripeCustomerId: true,
-        stripeSubscriptionId: true,
       },
     });
 
-    if (!school || !school.stripeCustomerId) {
-      return res.status(400).json({
-        ok: false,
-        error: "SCHOOL_HAS_NO_STRIPE_CUSTOMER",
-      });
+    // 2️⃣ sync do Stripe (jen BUSINESS údaje)
+    if (school.stripeCustomerId) {
+      try {
+        await stripe.customers.update(school.stripeCustomerId, {
+          name: billingName,
+          email: billingEmail || undefined,
+          address: {
+            line1: billingStreet,
+            city: billingCity,
+            postal_code: billingZip,
+            country: billingCountry,
+          },
+          metadata: {
+            ico: billingIco || "",
+          },
+        });
+      } catch (stripeErr) {
+        console.warn(
+          "⚠️ Stripe customer update failed:",
+          stripeErr.message
+        );
+      }
     }
 
-    // 2️⃣ vytvoříme billing portal session
-    const session = await stripe.billingPortal.sessions.create({
-      customer: school.stripeCustomerId,
-
-      // 🔁 návrat zpět do administrace školy
-      return_url: `${process.env.FRONTEND_ORIGIN}/school-admin`,
-
-      // 🧠 future-proof – Stripe ví, že jde o subscription
-      flow_data: school.stripeSubscriptionId
-        ? {
-            type: "subscription_update",
-            subscription_update: {
-              subscription: school.stripeSubscriptionId,
-            },
-          }
-        : undefined,
-    });
-
-    return res.json({
-      ok: true,
-      url: session.url,
-    });
-
+    return res.json({ ok: true });
   } catch (err) {
-    console.error("❌ Billing portal error:", err);
+    console.error("SAVE BILLING ERROR:", err);
     return res.status(500).json({
       ok: false,
-      error: "FAILED_TO_CREATE_BILLING_PORTAL",
+      error: "SAVE_BILLING_FAILED",
     });
   }
 });
+
 
 
 // ---------- start-registration team ----------
@@ -1798,7 +1818,6 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
           },
           metadata: {
             ico: billingIco || "",
-            dic: billingDic || "",
           },
         });
 
