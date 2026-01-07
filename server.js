@@ -724,25 +724,13 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
   try {
     const user = req.user;
 
-    // --------------------------------------------------
-    // 🔒 NEKOMPROMISNÍ BLOKACE
-    // --------------------------------------------------
     if (!user.schoolId || user.role !== "SCHOOL_ADMIN") {
-      console.warn("❌ BLOCKED TEAM CHECKOUT:", {
-        userId: user.id,
-        role: user.role,
-        schoolId: user.schoolId,
-      });
-
       return res.status(400).json({
         ok: false,
         error: "SCHOOL_REQUIRED_BEFORE_TEAM_CHECKOUT",
       });
     }
 
-    // --------------------------------------------------
-    // 📥 DATA Z FE
-    // --------------------------------------------------
     const { plan } = req.body;
 
     if (!plan || !["team_monthly", "team_yearly"].includes(plan)) {
@@ -752,9 +740,6 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
       });
     }
 
-    // --------------------------------------------------
-    // 🧾 MAPOVÁNÍ PLAN → PRICE ID
-    // --------------------------------------------------
     const PRICE_MAP = {
       team_monthly: process.env.STRIPE_TEAM_MONTHLY_PRICE_ID,
       team_yearly: process.env.STRIPE_TEAM_YEARLY_PRICE_ID,
@@ -762,63 +747,75 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
 
     const priceId = PRICE_MAP[plan];
 
-    if (!priceId) {
-      return res.status(500).json({
+    // 🏫 škola (potřebujeme stripeCustomerId)
+    const school = await prisma.school.findUnique({
+      where: { id: user.schoolId },
+      select: {
+        stripeCustomerId: true,
+      },
+    });
+
+    if (!school?.stripeCustomerId) {
+      return res.status(400).json({
         ok: false,
-        error: "PRICE_NOT_CONFIGURED",
+        error: "SCHOOL_HAS_NO_STRIPE_CUSTOMER",
       });
     }
 
-    // --------------------------------------------------
-    // 🏫 IDENTITA ŠKOLY
-    // --------------------------------------------------
-    const schoolId = user.schoolId;
-
-    // --------------------------------------------------
-    // 💳 STRIPE CHECKOUT SESSION
-    // --------------------------------------------------
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
+
+      // 🔥 KLÍČOVÉ
+      customer: school.stripeCustomerId,
+
+      customer_update: {
+        name: "auto",
+        address: "auto",
+      },
+
       line_items: [
         {
           price: priceId,
           quantity: 10,
         },
       ],
-      metadata: {
-        ownerType: "SCHOOL",
-        ownerId: schoolId,   // může zůstat
-        schoolId: schoolId,  // 🔥 KLÍČOVÉ
-        planCode: "TEAM",
-        billingPeriod: plan === "team_yearly" ? "year" : "month",
-      },
+
       subscription_data: {
         metadata: {
           ownerType: "SCHOOL",
-          ownerId: schoolId,
-          schoolId: schoolId, // 🔥 MUSÍ BÝT I TADY
+          ownerId: user.schoolId,
+          schoolId: user.schoolId,
           planCode: "TEAM",
           billingPeriod: plan === "team_yearly" ? "year" : "month",
         },
       },
+
+      metadata: {
+        ownerType: "SCHOOL",
+        ownerId: user.schoolId,
+        schoolId: user.schoolId,
+        planCode: "TEAM",
+      },
+
       success_url: `${process.env.FRONTEND_ORIGIN}/team/success`,
       cancel_url: `${process.env.FRONTEND_ORIGIN}/billing/cancel`,
     });
 
-    return res.json({
+    res.json({
       ok: true,
       url: session.url,
     });
 
   } catch (err) {
     console.error("TEAM CHECKOUT ERROR:", err);
-    return res.status(500).json({
+    res.status(500).json({
       ok: false,
       error: "TEAM_CHECKOUT_FAILED",
     });
   }
 });
+
 
 
 
