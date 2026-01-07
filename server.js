@@ -755,12 +755,6 @@ app.post("/api/team/checkout", authMiddleware, async (req, res) => {
       },
     });
 
-    if (!school?.stripeCustomerId) {
-      return res.status(400).json({
-        ok: false,
-        error: "SCHOOL_HAS_NO_STRIPE_CUSTOMER",
-      });
-    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
