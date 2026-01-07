@@ -1707,70 +1707,7 @@ app.post("/api/team/preview-seat-change", authMiddleware, async (req, res) => {
 });
 
 
-// ---------- zobrazení faktury ----------
 
-app.get("/api/team/invoices", authMiddleware, async (req, res) => {
-  try {
-    const user = req.user;
-
-    if (user.role !== "SCHOOL_ADMIN") {
-      return res.status(403).json({
-        ok: false,
-        error: "FORBIDDEN",
-      });
-    }
-
-    if (!user.schoolId) {
-      return res.status(400).json({
-        ok: false,
-        error: "USER_HAS_NO_SCHOOL",
-      });
-    }
-
-    const school = await prisma.school.findUnique({
-      where: { id: user.schoolId },
-      select: {
-        stripeCustomerId: true,
-      },
-    });
-
-    // 🔑 škola ještě nikdy neplatila → žádné faktury
-    if (!school?.stripeCustomerId) {
-      return res.json({
-        ok: true,
-        invoices: [],
-      });
-    }
-
-    const invoices = await stripe.invoices.list({
-      customer: school.stripeCustomerId,
-      limit: 20,
-    });
-
-    const formatted = invoices.data.map((inv) => ({
-      id: inv.id,
-      number: inv.number,
-      status: inv.status,
-      amountPaid: inv.amount_paid,
-      amountDue: inv.amount_due,
-      currency: inv.currency,
-      hostedUrl: inv.hosted_invoice_url,
-      pdfUrl: inv.invoice_pdf,
-      createdAt: new Date(inv.created * 1000),
-    }));
-
-    return res.json({
-      ok: true,
-      invoices: formatted,
-    });
-  } catch (err) {
-    console.error("❌ GET INVOICES ERROR:", err);
-    return res.status(500).json({
-      ok: false,
-      error: "FAILED_TO_LOAD_INVOICES",
-    });
-  }
-});
 
 
 // ---------- API – uložení fakturačních údajů ----------
@@ -1958,7 +1895,26 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------- generace faktury ----------
+app.get("/api/invoices/:id/pdf", authMiddleware, async (req, res) => {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: req.params.id },
+  });
 
+  if (!invoice) {
+    return res.status(404).json({ ok: false });
+  }
+
+  const doc = generateInvoicePdf(invoice);
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename=faktura-${invoice.number}.pdf`
+  );
+
+  doc.pipe(res);
+});
 
 
 // ---------- WORKSHEET LOGS ----------
