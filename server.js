@@ -941,6 +941,21 @@ app.get("/api/team/school", authMiddleware, async (req, res) => {
 });
 
 
+async function generateInvoiceNumber(tx) {
+  const year = new Date().getFullYear();
+
+  const last = await tx.invoice.findFirst({
+    where: { year },
+    orderBy: { sequence: "desc" },
+  });
+
+  const sequence = last ? last.sequence + 1 : 1;
+
+  const number = `LL-${year}-${String(sequence).padStart(4, "0")}`;
+
+  return { year, sequence, number };
+}
+
 
 
 // ---------- Aktivuje školu po zaplacení. ----------
@@ -1113,6 +1128,11 @@ if (event.type === "invoice.paid") {
   const stripeInvoice = event.data.object;
 
   console.log("🧾 invoice.paid:", stripeInvoice.id);
+  console.log("🧾 invoice.paid received", {
+  id: stripeInvoice.id,
+  customer: stripeInvoice.customer,
+  subscription: stripeInvoice.subscription,
+});
 
   await prisma.$transaction(async (tx) => {
     // 🔁 idempotence
@@ -1130,6 +1150,8 @@ if (event.type === "invoice.paid") {
       where: { stripeCustomerId: stripeInvoice.customer },
     });
 
+    console.log("🏫 School lookup result:", school?.id);
+
     if (!school) {
       console.warn("⚠️ School not found for invoice");
       return;
@@ -1139,7 +1161,14 @@ if (event.type === "invoice.paid") {
     const { year, sequence, number } =
       await generateInvoiceNumber(tx);
 
-    // 🧾 vytvoření INTERNÍ faktury
+   console.log("📄 Creating invoice for school:", {
+  schoolId: school.id,
+  number,
+  amount: stripeInvoice.amount_paid,
+});
+
+   
+      // 🧾 vytvoření INTERNÍ faktury
     await tx.invoice.create({
       data: {
         stripeInvoiceId: stripeInvoice.id,
