@@ -13,6 +13,8 @@ import { body, validationResult } from "express-validator";
 import { fileURLToPath } from "url";
 import stripeWebhookRouter from './routes/stripeWebhook.js'
 import billingRouter from './routes/billing.js'
+import { generateInvoicePdf } from "./utils/invoicePdf.js";
+
 
 // ---------- CUSTOM SERVICES & MIDDLEWARE ----------
 import { licenseContext } from "./src/middleware/licenseContext.js";
@@ -1108,69 +1110,68 @@ app.post(
 // 🧾 FAKTURA ZAPLACENA → vytvoření INTERNÍ FAKTURY
 // --------------------------------------------------
 if (event.type === "invoice.paid") {
-  const invoice = event.data.object;
+  const stripeInvoice = event.data.object;
 
-  console.log("🧾 invoice.paid:", invoice.id);
+  console.log("🧾 invoice.paid:", stripeInvoice.id);
 
-  // 🔁 idempotence
-  const existing = await prisma.invoice.findUnique({
-    where: { stripeInvoiceId: invoice.id },
+  await prisma.$transaction(async (tx) => {
+    // 🔁 idempotence
+    const exists = await tx.invoice.findUnique({
+      where: { stripeInvoiceId: stripeInvoice.id },
+    });
+
+    if (exists) {
+      console.log("↩️ Invoice already exists");
+      return;
+    }
+
+    // 🏫 najdeme školu
+    const school = await tx.school.findFirst({
+      where: { stripeCustomerId: stripeInvoice.customer },
+    });
+
+    if (!school) {
+      console.warn("⚠️ School not found for invoice");
+      return;
+    }
+
+    // 🔢 číslo faktury
+    const { year, sequence, number } =
+      await generateInvoiceNumber(tx);
+
+    // 🧾 vytvoření INTERNÍ faktury
+    await tx.invoice.create({
+      data: {
+        stripeInvoiceId: stripeInvoice.id,
+        stripeCustomerId: stripeInvoice.customer,
+        stripeSubscriptionId: stripeInvoice.subscription,
+
+        year,
+        sequence,
+        number,
+
+        schoolId: school.id,
+
+        amountPaid: stripeInvoice.amount_paid,
+        currency: stripeInvoice.currency,
+        status: "PAID",
+        issuedAt: new Date(stripeInvoice.created * 1000),
+
+        // 📸 snapshot fakturačních údajů
+        billingName: school.billingName,
+        billingStreet: school.billingStreet,
+        billingCity: school.billingCity,
+        billingZip: school.billingZip,
+        billingCountry: school.billingCountry,
+        billingIco: school.billingIco,
+        billingEmail: school.billingEmail,
+      },
+    });
+
+    console.log("✅ Internal invoice created:", number);
   });
-
-  if (existing) {
-  console.log("↩️ Invoice already exists, skipping");
-  return; // ✅ jen return, žádná odpověď
 }
 
-
-  // 🏫 najdeme školu
-  const school = await prisma.school.findFirst({
-    where: {
-      stripeCustomerId: invoice.customer,
-    },
-  });
-
-  if (!school) {
-    console.warn("⚠️ No school for invoice:", invoice.id);
-    return res.json({ received: true });
-  }
-
-  // 📦 položky
-  const items = invoice.lines.data.map((l) => ({
-    description: l.description,
-    quantity: l.quantity ?? 1,
-    amount: l.amount,
-  }));
-
-  // 🧾 vytvoření vlastní faktury
-  await prisma.invoice.create({
-    data: {
-      stripeInvoiceId: invoice.id,
-      stripeSubscriptionId: invoice.subscription,
-      stripeCustomerId: invoice.customer,
-      number: invoice.number,
-      status: "PAID",
-      amountPaid: invoice.amount_paid,
-      currency: invoice.currency,
-      issuedAt: new Date(invoice.created * 1000),
-
-      schoolId: school.id,
-
-      // 🔥 SNAPSHOT FAKTURAČNÍCH ÚDAJŮ
-      billingName: school.billingName,
-      billingStreet: school.billingStreet,
-      billingCity: school.billingCity,
-      billingZip: school.billingZip,
-      billingCountry: school.billingCountry,
-      billingIco: school.billingIco,
-      billingEmail: school.billingEmail,
-
-      items,
-    },
-  });
-
-  console.log("✅ Internal invoice created:", invoice.number);
-}
 
 
     res.json({ received: true });
@@ -1855,6 +1856,54 @@ app.get("/api/invoices/:id/pdf", authMiddleware, async (req, res) => {
 
   doc.pipe(res);
 });
+
+// ---------- API ENDPOINT PRO PDF FAKTURU ----------
+
+app.get("/api/invoices/:id/pdf", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      include: {
+        school: true,
+      },
+    });
+
+    if (!invoice) {
+      return res.status(404).json({
+        ok: false,
+        error: "INVOICE_NOT_FOUND",
+      });
+    }
+
+    // 🔐 jen SCHOOL_ADMIN své školy
+    if (
+      req.user.role !== "SCHOOL_ADMIN" ||
+      req.user.schoolId !== invoice.schoolId
+    ) {
+      return res.status(403).json({
+        ok: false,
+        error: "FORBIDDEN",
+      });
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename=faktura-${invoice.number}.pdf`
+    );
+
+    generateInvoicePdf(invoice, res);
+  } catch (err) {
+    console.error("PDF ERROR:", err);
+    res.status(500).json({
+      ok: false,
+      error: "PDF_GENERATION_FAILED",
+    });
+  }
+});
+
 
 
 // ---------- WORKSHEET LOGS ----------
