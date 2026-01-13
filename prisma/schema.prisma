@@ -8,44 +8,44 @@ datasource db {
 }
 
 model User {
-  id                   String         @id @default(uuid())
-  email                String         @unique
-  password             String
-  createdAt            DateTime       @default(now())
-  schoolId             String?
-  role                 String         @default("TEACHER") // TEACHER | SCHOOL_ADMIN | SUPERADMIN
-  stripeCustomerId     String?        @unique
-  subscriptionStatus   String? // active, trialing, past_due, canceled...
-  subscriptionPlan     String? // basic_monthly, basic_yearly, team
-  subscriptionUntil    DateTime?
-  school               School?        @relation(fields: [schoolId], references: [id])
-  passwordSetupToken   String?        @unique
-  passwordSetupExpires DateTime?
-  logs                 WorksheetLog[]
+  id                 String         @id @default(uuid())
+  email              String         @unique
+  password           String
+  createdAt          DateTime       @default(now())
+  schoolId           String?
+  role               String         @default("TEACHER")   // TEACHER | SCHOOL_ADMIN | SUPERADMIN
+  stripeCustomerId   String?        @unique
+  subscriptionStatus String?        // active, trialing, past_due, canceled...
+  subscriptionPlan   String?        // basic_monthly, basic_yearly, team
+  subscriptionUntil  DateTime?
+  school             School?        @relation(fields: [schoolId], references: [id])
+  passwordSetupToken     String?  @unique
+  passwordSetupExpires   DateTime?
+  logs               WorksheetLog[]
 }
 
 model School {
-  id                   String    @id @default(uuid())
+  id                   String      @id @default(uuid())
   name                 String
-  createdAt            DateTime  @default(now())
-  stripeCustomerId     String?   @unique
-  stripeSubscriptionId String?   @unique // pro TEAM plán
-  subscriptionStatus   String? // active, trialing, past_due, canceled
-  subscriptionPlan     String? // team_monthly, team_yearly
+  createdAt            DateTime    @default(now())
+  stripeCustomerId     String?     @unique
+  stripeSubscriptionId String?     @unique   // pro TEAM plán
+  subscriptionStatus   String?               // active, trialing, past_due, canceled
+  subscriptionPlan     String?               // team_monthly, team_yearly
   subscriptionUntil    DateTime?
-  seatLimit            Int? // počet učitelů, např. 10 seats
+  seatLimit            Int?                  // počet učitelů, např. 10 seats
   license              License?
   users                User[]
   // 🔥 FAKTURAČNÍ ÚDAJE
-  billingName          String?
-  billingStreet        String?
-  billingCity          String?
-  billingZip           String?
-  billingCountry       String?
-  billingIco           String?
-  billingDic           String?
-  billingEmail         String?
-  Invoice              Invoice[]
+  billingName           String?
+  billingStreet         String?
+  billingCity           String?
+  billingZip            String?
+  billingCountry        String?
+  billingIco            String?
+  billingDic            String?
+  billingEmail          String?
+  invoices Invoice[]   // 👈 TOTO CHYBĚLO
 }
 
 model License {
@@ -58,28 +58,28 @@ model License {
 }
 
 model Subscription {
-  id String @id @default(uuid())
+  id                     String   @id @default(uuid())
 
-  ownerType String // 'USER' | 'SCHOOL'
-  ownerId   String // user.id nebo school.id
+  ownerType              String    // 'USER' | 'SCHOOL'
+  ownerId                String    // user.id nebo school.id
 
-  planCode      String // basic_monthly, school_yearly, team_monthly...
-  billingPeriod String // monthly, yearly
+  planCode               String    // basic_monthly, school_yearly, team_monthly...
+  billingPeriod          String    // monthly, yearly
 
-  stripeCustomerId     String
-  stripeSubscriptionId String @unique
-  stripePriceId        String
+  stripeCustomerId       String
+  stripeSubscriptionId   String    @unique
+  stripePriceId          String
 
-  status             String // active, trialing, past_due, canceled
-  cancelAtPeriodEnd  Boolean   @default(false)
-  currentPeriodStart DateTime?
-  currentPeriodEnd   DateTime?
+  status                 String    // active, trialing, past_due, canceled
+  cancelAtPeriodEnd      Boolean   @default(false)
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
 
   // TEAM license
-  seatLimit Int?
+  seatLimit              Int?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   @@index([ownerType, ownerId])
   @@index([stripeCustomerId])
@@ -94,9 +94,8 @@ model UsageLimit {
   worksheetsCount Int      @default(0)
   aiGenerations   Int      @default(0)
   updatedAt       DateTime @updatedAt
-
-  @@unique([ownerType, ownerId, year, month])
   @@index([ownerType, ownerId])
+  @@unique([ownerType, ownerId, year, month])
 }
 
 model WorksheetLog {
@@ -109,30 +108,38 @@ model WorksheetLog {
 }
 
 model Invoice {
-  id String @id @default(uuid())
+  id              String   @id @default(uuid())
 
-  number   String @unique // 🔥 2026-000123
-  year     Int
-  sequence Int
+  // 🔗 Stripe vazby
+  stripeInvoiceId        String   @unique
+  stripeCustomerId      String
+  stripeSubscriptionId  String?
 
-  schoolId String
-  school   School @relation(fields: [schoolId], references: [id])
+  // interní číslo
+  number          String   @unique
+  year            Int
+  sequence        Int
 
-  amountPaid Int
-  currency   String
-  status     String // PAID | DRAFT | CANCELED
+  schoolId        String
+  school          School   @relation(fields: [schoolId], references: [id])
 
-  issuedAt  DateTime
-  createdAt DateTime @default(now())
+  amountPaid      Int
+  currency        String
+  status          String   // PAID | DRAFT | CANCELED
+
+  issuedAt        DateTime
+  createdAt       DateTime @default(now())
 
   // snapshot billing
-  billingName    String
-  billingStreet  String
-  billingCity    String
-  billingZip     String
-  billingCountry String
-  billingIco     String?
-  billingEmail   String?
+  billingName     String
+  billingStreet   String
+  billingCity     String
+  billingZip      String
+  billingCountry  String
+  billingIco      String?
+  billingEmail    String?
 
-  @@unique([year, sequence]) // 🔒 pojistka
+  @@unique([year, sequence])
 }
+
+
