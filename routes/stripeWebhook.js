@@ -28,6 +28,72 @@ router.post(
     }
 
     console.log("➡️ Stripe event:", event.type);
+    console.log("🔥 ACTIVE STRIPE WEBHOOK FILE:", __filename);
+// --------------------------------------------------
+// 🧾 FAKTURA ZAPLACENA → vytvoření INTERNÍ FAKTURY
+// --------------------------------------------------
+if (event.type === "invoice.paid") {
+  const stripeInvoice = event.data.object;
+
+  console.log("🧾 invoice.paid:", stripeInvoice.id);
+
+  await prisma.$transaction(async (tx) => {
+    const exists = await tx.invoice.findUnique({
+      where: { stripeInvoiceId: stripeInvoice.id },
+    });
+
+    if (exists) {
+      console.log("↩️ Invoice already exists");
+      return;
+    }
+
+    const school = await tx.school.findFirst({
+      where: { stripeCustomerId: stripeInvoice.customer },
+    });
+
+    console.log("🏫 School lookup result:", school?.id);
+
+    if (!school) {
+      console.warn("⚠️ School not found for invoice");
+      return;
+    }
+
+    const { year, sequence, number } =
+      await generateInvoiceNumber(tx);
+
+    console.log("📄 Creating invoice:", number);
+
+    await tx.invoice.create({
+      data: {
+        stripeInvoiceId: stripeInvoice.id,
+        stripeCustomerId: stripeInvoice.customer,
+        stripeSubscriptionId: stripeInvoice.subscription,
+
+        year,
+        sequence,
+        number,
+
+        schoolId: school.id,
+
+        amountPaid: stripeInvoice.amount_paid,
+        currency: stripeInvoice.currency,
+        status: "PAID",
+        issuedAt: new Date(stripeInvoice.created * 1000),
+
+        billingName: school.billingName,
+        billingStreet: school.billingStreet,
+        billingCity: school.billingCity,
+        billingZip: school.billingZip,
+        billingCountry: school.billingCountry,
+        billingIco: school.billingIco,
+        billingEmail: school.billingEmail,
+      },
+    });
+
+    console.log("✅ Internal invoice created:", number);
+  });
+}
+
 
     try {
       switch (event.type) {
