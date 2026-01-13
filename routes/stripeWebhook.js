@@ -9,10 +9,25 @@ const router = express.Router();
 // ======================================================
 // ⚠️ STRIPE WEBHOOK – RAW BODY
 // ======================================================
+// routes/stripeWebhook.js
+import express from "express";
+import Stripe from "stripe";
+import { prisma } from "../src/lib/prisma.js";
+import { generateInvoiceNumber } from "../src/services/invoiceNumber.js";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const router = express.Router();
+
+// ======================================================
+// ⚠️ STRIPE WEBHOOK – RAW BODY
+// ======================================================
 router.post(
   "/",
   express.raw({ type: "application/json" }),
   async (req, res) => {
+
+    console.log("🔥 STRIPE WEBHOOK HIT");
+
     const sig = req.headers["stripe-signature"];
     let event;
 
@@ -27,74 +42,94 @@ router.post(
       return res.status(400).send("Invalid signature");
     }
 
-    console.log("➡️ Stripe event:", event.type);
-    console.log("🔥 ACTIVE STRIPE WEBHOOK FILE:", __filename);
-// --------------------------------------------------
-// 🧾 FAKTURA ZAPLACENA → vytvoření INTERNÍ FAKTURY
-// --------------------------------------------------
-if (event.type === "invoice.paid") {
-  const stripeInvoice = event.data.object;
+    console.log("➡️ Stripe event type:", event.type);
 
-  console.log("🧾 invoice.paid:", stripeInvoice.id);
+    // ======================================================
+    // 🧾 FAKTURA ZAPLACENA → vytvoření INTERNÍ FAKTURY
+    // ======================================================
+    if (event.type === "invoice.paid" || event.type === "invoice.payment_succeeded") {
+      console.log("💰 ENTER invoice.paid flow");
 
-  await prisma.$transaction(async (tx) => {
-    const exists = await tx.invoice.findUnique({
-      where: { stripeInvoiceId: stripeInvoice.id },
-    });
+      const stripeInvoice = event.data.object;
 
-    if (exists) {
-      console.log("↩️ Invoice already exists");
-      return;
-    }
-
-    const school = await tx.school.findFirst({
-      where: { stripeCustomerId: stripeInvoice.customer },
-    });
-
-    console.log("🏫 School lookup result:", school?.id);
-
-    if (!school) {
-      console.warn("⚠️ School not found for invoice");
-      return;
-    }
-
-    const { year, sequence, number } =
-      await generateInvoiceNumber(tx);
-
-    console.log("📄 Creating invoice:", number);
-
-    await tx.invoice.create({
-      data: {
-        stripeInvoiceId: stripeInvoice.id,
-        stripeCustomerId: stripeInvoice.customer,
-        stripeSubscriptionId: stripeInvoice.subscription,
-
-        year,
-        sequence,
-        number,
-
-        schoolId: school.id,
-
-        amountPaid: stripeInvoice.amount_paid,
+      console.log("🧾 Stripe invoice:", {
+        id: stripeInvoice.id,
+        customer: stripeInvoice.customer,
+        subscription: stripeInvoice.subscription,
+        amount_paid: stripeInvoice.amount_paid,
         currency: stripeInvoice.currency,
-        status: "PAID",
-        issuedAt: new Date(stripeInvoice.created * 1000),
+      });
 
-        billingName: school.billingName,
-        billingStreet: school.billingStreet,
-        billingCity: school.billingCity,
-        billingZip: school.billingZip,
-        billingCountry: school.billingCountry,
-        billingIco: school.billingIco,
-        billingEmail: school.billingEmail,
-      },
-    });
+      try {
+        await prisma.$transaction(async (tx) => {
 
-    console.log("✅ Internal invoice created:", number);
-  });
-}
+          console.log("🔎 Checking if invoice already exists...");
 
+          const exists = await tx.invoice.findUnique({
+            where: { stripeInvoiceId: stripeInvoice.id },
+          });
 
+          if (exists) {
+            console.log("↩️ Invoice already exists:", exists.id);
+            return;
+          }
+
+          console.log("🔎 Looking up school by stripeCustomerId:", stripeInvoice.customer);
+
+          const school = await tx.school.findFirst({
+            where: { stripeCustomerId: stripeInvoice.customer },
+          });
+
+          console.log("🏫 School lookup result:", school?.id || "NOT FOUND");
+
+          if (!school) {
+            console.warn("⚠️ School not found → skipping internal invoice creation");
+            return;
+          }
+
+          console.log("🔢 Generating invoice number...");
+
+          const { year, sequence, number } = await generateInvoiceNumber(tx);
+
+          console.log("📄 Creating internal invoice:", number);
+
+          const createdInvoice = await tx.invoice.create({
+            data: {
+              stripeInvoiceId: stripeInvoice.id,
+              stripeCustomerId: stripeInvoice.customer,
+              stripeSubscriptionId: stripeInvoice.subscription,
+
+              year,
+              sequence,
+              number,
+
+              schoolId: school.id,
+
+              amountPaid: stripeInvoice.amount_paid,
+              currency: stripeInvoice.currency,
+              status: "PAID",
+              issuedAt: new Date(stripeInvoice.created * 1000),
+
+              billingName: school.billingName,
+              billingStreet: school.billingStreet,
+              billingCity: school.billingCity,
+              billingZip: school.billingZip,
+              billingCountry: school.billingCountry,
+              billingIco: school.billingIco,
+              billingEmail: school.billingEmail,
+            },
+          });
+
+          console.log("✅ Internal invoice created:", createdInvoice.id, number);
+        });
+      } catch (err) {
+        console.error("❌ Internal invoice creation failed:", err);
+      }
+    }
+
+    // ======================================================
+    // 🔄 OSTATNÍ STRIPE EVENTY
+    // ======================================================
     try {
       switch (event.type) {
         case "checkout.session.completed":
@@ -139,13 +174,16 @@ if (event.type === "invoice.paid") {
           console.log("ℹ️ Ignored event:", event.type);
       }
 
+      console.log("🏁 Webhook finished OK");
       res.json({ received: true });
+
     } catch (err) {
       console.error("❌ Webhook handler error:", err);
       res.status(500).json({ error: "Webhook failed" });
     }
   }
 );
+
 
 export default router;
 
