@@ -15,6 +15,8 @@ import stripeWebhookRouter from './routes/stripeWebhook.js'
 import billingRouter from './routes/billing.js'
 import { generateInvoicePdf } from "./utils/invoicePdf.js";
 import invoiceRoutes from "./routes/invoices.js";
+import { generateInvoicePdf } from "../src/services/generateInvoicePdf.js";
+
 
 
 // ---------- CUSTOM SERVICES & MIDDLEWARE ----------
@@ -1677,27 +1679,18 @@ app.get("/api/invoices/:id/pdf", authMiddleware, async (req, res) => {
 
     const invoice = await prisma.invoice.findUnique({
       where: { id },
-      include: {
-        school: true,
-      },
     });
 
     if (!invoice) {
-      return res.status(404).json({
-        ok: false,
-        error: "INVOICE_NOT_FOUND",
-      });
+      return res.status(404).json({ ok: false });
     }
 
-    // 🔐 jen SCHOOL_ADMIN své školy
+    // 🔐 pouze admin své školy
     if (
       req.user.role !== "SCHOOL_ADMIN" ||
       req.user.schoolId !== invoice.schoolId
     ) {
-      return res.status(403).json({
-        ok: false,
-        error: "FORBIDDEN",
-      });
+      return res.status(403).json({ ok: false });
     }
 
     res.setHeader("Content-Type", "application/pdf");
@@ -1706,15 +1699,17 @@ app.get("/api/invoices/:id/pdf", authMiddleware, async (req, res) => {
       `inline; filename=faktura-${invoice.number}.pdf`
     );
 
-    generateInvoicePdf(invoice, res);
+    const doc = generateInvoicePdf(invoice);
+
+    doc.pipe(res);
+    doc.end();
   } catch (err) {
     console.error("PDF ERROR:", err);
-    res.status(500).json({
-      ok: false,
-      error: "PDF_GENERATION_FAILED",
-    });
+    res.status(500).json({ ok: false });
   }
 });
+
+
 
 
 
