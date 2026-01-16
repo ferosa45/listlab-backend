@@ -206,15 +206,17 @@ app.post("/api/auth/login", async (req, res) => {
 
   setAuthCookie(res, token);
 
-  res.json({
-    ok: true,
-    user: {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      schoolId: user.schoolId,
-    },
-  });
+ res.json({
+  ok: true,
+  user: {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    schoolId: user.schoolId,
+  },
+  token, // 🔑 TOTO JE TEN CHYBĚJÍCÍ KOUSEK
+});
+
 });
 
 
