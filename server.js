@@ -1623,26 +1623,46 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
   }
 });
 
-// ---------- generace faktury ----------
-app.get("/api/invoices/:id/pdf", authMiddleware, async (req, res) => {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: req.params.id },
-  });
+// ---------- SEZNAM FAKTUR ----------
+app.get("/api/invoices", authMiddleware, async (req, res) => {
+  try {
+    // 🔐 jen admin školy
+    if (req.user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({
+        ok: false,
+        error: "FORBIDDEN",
+      });
+    }
 
-  if (!invoice) {
-    return res.status(404).json({ ok: false });
+    if (!req.user.schoolId) {
+      return res.status(400).json({
+        ok: false,
+        error: "NO_SCHOOL",
+      });
+    }
+
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        schoolId: req.user.schoolId,
+      },
+      orderBy: {
+        issuedAt: "desc",
+      },
+    });
+
+    res.json({
+      ok: true,
+      invoices,
+    });
+  } catch (err) {
+    console.error("INVOICES LIST ERROR:", err);
+    res.status(500).json({
+      ok: false,
+      error: "INVOICES_LIST_FAILED",
+    });
   }
-
-  const doc = generateInvoicePdf(invoice);
-
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader(
-    "Content-Disposition",
-    `inline; filename=faktura-${invoice.number}.pdf`
-  );
-
-  doc.pipe(res);
 });
+
 
 // ---------- API ENDPOINT PRO PDF FAKTURU ----------
 
