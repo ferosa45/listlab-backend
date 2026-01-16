@@ -13,7 +13,14 @@ export function generateInvoicePdf(invoice) {
 
   // ===== FONT =====
   const fontPath = path.join(__dirname, "../../fonts/DejaVuSans.ttf");
+
+if (fs.existsSync(fontPath)) {
   doc.font(fontPath);
+} else {
+  console.warn("⚠️ Font not found, using Helvetica");
+  doc.font("Helvetica");
+}
+
 
   // ===== HLAVIČKA =====
   doc
