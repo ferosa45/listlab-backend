@@ -13,7 +13,6 @@ import { body, validationResult } from "express-validator";
 import { fileURLToPath } from "url";
 import stripeWebhookRouter from './routes/stripeWebhook.js'
 import billingRouter from './routes/billing.js'
-import { generateInvoicePdf } from "./utils/invoicePdf.js";
 import invoiceRoutes from "./routes/invoices.js";
 import { generateInvoicePdf } from "../src/services/generateInvoicePdf.js";
 
