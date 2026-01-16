@@ -69,14 +69,19 @@ function drawParties(doc, invoice, x, width) {
   const y = 130;
 
   // DODAVATEL
-  doc.font("Bold").fontSize(11).text("Dodavatel", x, y);
-  doc.font("Regular").fontSize(10)
-    .text("ListLab Ing. Ondřej Krčal", x, y + 18)
-    .text("Čs. Armády 1199/26", x, y + 33)
-    .text("748 01 Hlučín", x, y + 48)
-    .text("IČO: 05241502", x, y + 63)
-    .text("E-mail: info@listlab.cz", x, y + 78)
-    .text("Telefon: 604 800 894", x, y + 93);
+ doc.font("Bold").fontSize(11).text("Dodavatel", x, y);
+
+doc.font("Bold").fontSize(10)
+  .text("ListLab", x, y + 18);
+
+doc.font("Regular").fontSize(10)
+  .text("Ing. Ondřej Krčal", x, y + 33)
+  .text("Čs. Armády 1199/26", x, y + 48)
+  .text("748 01 Hlučín", x, y + 63)
+  .text("IČO: 05241502", x, y + 78)
+  .text("E-mail: info@listlab.cz", x, y + 93)
+  .text("Telefon: 604 800 894", x, y + 108);
+
 
   // ODBĚRATEL
   const rightX = x + width / 2 + 20;
@@ -100,12 +105,12 @@ function drawParties(doc, invoice, x, width) {
 function drawItemsTable(doc, invoice, x, width) {
   let y = 270;
 
-  const cols = {
-    name: x,
-    qty: x + 300,
-    price: x + 370,
-    total: x + 460,
-  };
+ const cols = {
+  name: x,
+  qty: x + 280,
+  price: x + 340,
+  total: x + 430,
+};
 
   // HLAVIČKA TABULKY
   doc.rect(x, y - 6, width, 26).fill("#f3f4f6");
@@ -113,8 +118,8 @@ function drawItemsTable(doc, invoice, x, width) {
   doc.fillColor("#000").font("Bold").fontSize(10);
   doc.text("Popis", cols.name, y);
   doc.text("Ks", cols.qty, y, { width: 40, align: "right" });
-  doc.text("Cena", cols.price, y, { width: 60, align: "right" });
-  doc.text("Celkem", cols.total, y, { width: 80, align: "right" });
+  doc.text("Cena", cols.price, y, { width: 70, align: "right" });
+  doc.text("Celkem", cols.total, y, { width: 90, align: "right" });
 
   y += 30;
   doc.font("Regular");
@@ -125,8 +130,8 @@ function drawItemsTable(doc, invoice, x, width) {
   // POLOŽKA
   doc.text("TEAM licence – ListLab", cols.name, y);
   doc.text(quantity.toString(), cols.qty, y, { width: 40, align: "right" });
-  doc.text(formatPrice(price), cols.price, y, { width: 60, align: "right" });
-  doc.text(formatPrice(price), cols.total, y, { width: 80, align: "right" });
+  doc.text(formatPrice(price), cols.price, y, { width: 70, align: "right" });
+  doc.text(formatPrice(price), cols.total, y, { width: 90, align: "right" });
 
   y += 22;
   doc.moveTo(x, y).lineTo(x + width, y).strokeColor("#e5e7eb").stroke();
@@ -140,21 +145,17 @@ function drawSummary(doc, invoice, x, width) {
 
   const total = invoice.amountPaid / 100;
 
-  doc.font("Regular").fontSize(10);
-
-  doc.text("Celkem bez DPH:", right - 200, y, { width: 120, align: "right" });
-  doc.text(formatPrice(total), right - 80, y, { align: "right" });
-
-  doc.moveDown(0.8);
   doc.font("Bold").fontSize(13);
 
-  doc.text("Celkem k úhradě:", right - 200, doc.y, { width: 120, align: "right" });
-  doc.text(formatPrice(total), right - 80, doc.y, { align: "right" });
+  doc.text("Celkem k úhradě:", right - 200, y, { width: 120, align: "right" });
+  doc.text(formatPrice(total), right - 80, y, { align: "right" });
 }
+
 
 function drawFooter(doc, invoice, x, width) {
   doc.font("Regular").fontSize(9).fillColor("#666");
 
+  doc.text("Nejsem plátce DPH.", x, 705);
   doc.text("Faktura byla uhrazena online prostřednictvím Stripe.", x, 720);
   doc.text("Vygenerováno systémem ListLab", x, 735);
   doc.text("Děkujeme za využití ListLab ❤️", x, 760, { align: "center", width });
