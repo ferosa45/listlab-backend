@@ -16,12 +16,16 @@ export function generateInvoicePdf(invoice) {
   doc.font(fontPath);
 
   // ===== HLAVIČKA =====
- doc.fontSize(22);
-doc.characterSpacing(1.2);
-doc.text("FAKTURA", { align: "center" });
-doc.characterSpacing(0); // vrátit zpět
+// ===== HLAVIČKA =====
+doc
+  .font(fontPath)
+  .fontSize(24)
+  .text("FAKTURA", {
+    align: "center",
+  });
 
-  doc.moveDown(2);
+doc.moveDown(2);
+
 
   // ===== ZÁKLADNÍ INFO =====
   doc.fontSize(11);
