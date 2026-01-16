@@ -1623,7 +1623,7 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
   }
 });
 
-// ---------- SEZNAM FAKTUR ----------
+// ---------- SEZNAM FAKTURR ----------
 app.get("/api/invoices", authMiddleware, async (req, res) => {
   try {
     // 🔐 jen admin školy
