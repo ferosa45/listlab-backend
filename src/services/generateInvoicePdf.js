@@ -11,27 +11,20 @@ export function generateInvoicePdf(invoice) {
     margin: 50,
   });
 
-  // ===== FONT =====
-  const fontPath = path.join(__dirname, "../../fonts/DejaVuSans.ttf");
+  // ✅ SPRÁVNÁ CESTA K FONTU
+  const fontPath = path.join(
+    __dirname,
+    "../../fonts/DejaVuSans.ttf"
+  );
 
-if (fs.existsSync(fontPath)) {
   doc.font(fontPath);
-} else {
-  console.warn("⚠️ Font not found, using Helvetica");
-  doc.font("Helvetica");
-}
-
 
   // ===== HLAVIČKA =====
   doc
     .fontSize(22)
-    .characterSpacing(1.2)
     .text("FAKTURA", { align: "center" })
-    .characterSpacing(0);
+    .moveDown(2);
 
-  doc.moveDown(2);
-
-  // ===== ZÁKLADNÍ INFO =====
   doc.fontSize(11);
   doc.text(`Číslo faktury: ${invoice.number}`);
   doc.text(
@@ -40,7 +33,6 @@ if (fs.existsSync(fontPath)) {
 
   doc.moveDown(2);
 
-  // ===== ODBĚRATEL =====
   doc.fontSize(13).text("Odběratel", { underline: true });
   doc.moveDown(0.5);
 
@@ -60,44 +52,21 @@ if (fs.existsSync(fontPath)) {
 
   doc.moveDown(2);
 
-  // ===== POLOŽKY =====
-  doc.fontSize(13).text("Položky", { underline: true });
-  doc.moveDown(0.5);
-
-  doc.fontSize(11);
-  doc.text("Popis", 50, doc.y, { continued: true });
-  doc.text("Množství", 350, doc.y, { continued: true });
-  doc.text("Cena", 450, doc.y);
-
-  doc
-    .moveTo(50, doc.y + 2)
-    .lineTo(545, doc.y + 2)
-    .stroke();
-
-  doc.moveDown(0.5);
-
-  doc.text("TEAM licence – ListLab", 50, doc.y, { continued: true });
-  doc.text("1", 370, doc.y, { continued: true });
-  doc.text(`${(invoice.amountPaid / 100).toFixed(2)} Kč`, 450, doc.y);
-
-  // ===== SOUHRN =====
-  doc.moveDown(2.5);
   doc.fontSize(13).text("Souhrn", { underline: true });
   doc.moveDown(0.5);
 
-  doc
-    .fontSize(12)
-    .text(
-      `Celkem zaplaceno: ${(invoice.amountPaid / 100).toFixed(2)} Kč`,
-      { align: "right" }
-    );
+  doc.fontSize(11);
+  doc.text(
+    `Celkem zaplaceno: ${(invoice.amountPaid / 100).toFixed(2)} Kč`
+  );
 
-  // ===== PATIČKA =====
   doc.moveDown(3);
   doc
     .fontSize(9)
     .fillColor("gray")
-    .text("Vygenerováno systémem ListLab", { align: "center" });
+    .text("Vygenerováno systémem ListLab", {
+      align: "center",
+    });
 
   doc.fillColor("black");
 
