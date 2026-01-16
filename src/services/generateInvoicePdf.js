@@ -6,6 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export function generateInvoicePdf(invoice) {
+
   const doc = new PDFDocument({
     size: "A4",
     margin: 50,
@@ -57,43 +58,32 @@ doc.moveDown(2);
   doc.moveDown(2);
 
  // ===== POLOŽKY =====
-doc.moveDown(2);
+doc.moveDown(1);
 doc.fontSize(13).text("Položky", { underline: true });
-doc.moveDown(1);
+doc.moveDown(0.5);
 
-// Hlavička tabulky
-const tableTop = doc.y;
-
+// hlavička tabulky
 doc.fontSize(11)
-  .text("Popis", 50, tableTop)
-  .text("Množství", 400, tableTop, { width: 60, align: "right" })
-  .text("Cena", 480, tableTop, { width: 80, align: "right" });
+  .text("Popis", 50)
+  .text("Množství", 400, doc.y - 14, { width: 60, align: "right" })
+  .text("Cena", 480, doc.y - 14, { width: 80, align: "right" });
 
-// Oddělovací čára
-doc
-  .moveTo(50, tableTop + 15)
-  .lineTo(550, tableTop + 15)
-  .stroke();
+doc.moveDown(0.3);
+doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
 
-doc.moveDown(1);
+doc.moveDown(0.5);
 
-// Řádek položky
+// 🔥 DATA
+const quantity = 1;
+const price = invoice.amountPaid / 100;
+
 const rowY = doc.y;
 
 doc.fontSize(11)
   .text("TEAM licence – ListLab", 50, rowY)
-  .text(
-    quantity.toString(),
-    400,
-    rowY,
-    { width: 60, align: "right" }
-  )
-  .text(
-    `${price.toFixed(2)} Kč`,
-    480,
-    rowY,
-    { width: 80, align: "right" }
-  );
+  .text(quantity.toString(), 400, rowY, { width: 60, align: "right" })
+  .text(`${price.toFixed(2)} Kč`, 480, rowY, { width: 80, align: "right" });
+
 
 
   doc.moveDown(2);
