@@ -102,18 +102,26 @@ doc.font("Regular").fontSize(10)
   }
 }
 
+
+
+
 function drawItemsTable(doc, invoice, x, width) {
+
   let y = 270;
 
- const cols = {
-  name: x,
-  qty: x + 280,
-  price: x + 340,
-  total: x + 430,
-};
+  const cols = {
+    name: x,
+    qty: x + 280,
+    price: x + 340,
+    total: x + 430,
+  };
+
+  // skutečný konec tabulky
+  const tableRightEdge = cols.total + 90; // 90 = šířka "Celkem"
+  const tableWidth = tableRightEdge - x;
 
   // HLAVIČKA TABULKY
-  doc.rect(x, y - 6, width, 26).fill("#f3f4f6");
+  doc.rect(x, y - 6, tableWidth, 26).fill("#f3f4f6");
 
   doc.fillColor("#000").font("Bold").fontSize(10);
   doc.text("Popis", cols.name, y);
@@ -134,10 +142,14 @@ function drawItemsTable(doc, invoice, x, width) {
   doc.text(formatPrice(price), cols.total, y, { width: 90, align: "right" });
 
   y += 22;
-  doc.moveTo(x, y).lineTo(x + width, y).strokeColor("#e5e7eb").stroke();
+  doc.moveTo(x, y)
+     .lineTo(tableRightEdge, y)
+     .strokeColor("#e5e7eb")
+     .stroke();
 
   doc.y = y + 25;
 }
+
 
 function drawSummary(doc, invoice, x, width) {
   const y = doc.y;
