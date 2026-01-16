@@ -14,6 +14,7 @@ import { fileURLToPath } from "url";
 import stripeWebhookRouter from './routes/stripeWebhook.js'
 import billingRouter from './routes/billing.js'
 import { generateInvoicePdf } from "./utils/invoicePdf.js";
+import invoiceRoutes from "./routes/invoices.js";
 
 
 // ---------- CUSTOM SERVICES & MIDDLEWARE ----------
@@ -55,6 +56,7 @@ app.use('/api/stripe/webhook', stripeWebhookRouter)
 
 app.use(express.json())
 app.use(cookieParser())
+app.use("/api/invoices", invoiceRoutes);
 
 // ---------- COOKIE HELPERS ----------
 function setAuthCookie(res, token) {
