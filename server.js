@@ -14,7 +14,7 @@ import { fileURLToPath } from "url";
 import stripeWebhookRouter from './routes/stripeWebhook.js'
 import billingRouter from './routes/billing.js'
 import invoiceRoutes from "./routes/invoices.js";
-import { generateInvoicePdf } from "../src/services/generateInvoicePdf.js";
+import { generateInvoicePdf } from "./src/services/generateInvoicePdf.js";
 
 
 
