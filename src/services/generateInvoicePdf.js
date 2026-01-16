@@ -49,7 +49,7 @@ export function generateInvoicePdf(invoice) {
 }
 
 // ======================================================
-// SEKCE
+// SEKCEE
 // ======================================================
 
 function drawHeader(doc, invoice, x, width) {
