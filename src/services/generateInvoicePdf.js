@@ -56,28 +56,45 @@ doc.moveDown(2);
 
   doc.moveDown(2);
 
-  // ===== POLOŽKY =====
-  doc.fontSize(13).text("Položky", { underline: true });
-  doc.moveDown(0.5);
+ // ===== POLOŽKY =====
+doc.moveDown(2);
+doc.fontSize(13).text("Položky", { underline: true });
+doc.moveDown(1);
 
-  // Hlavička tabulky
-  doc.fontSize(11);
-  doc.text("Popis", 50, doc.y, { continued: true });
-  doc.text("Množství", 350, doc.y, { continued: true });
-  doc.text("Cena", 450, doc.y);
+// Hlavička tabulky
+const tableTop = doc.y;
 
-  // Oddělovací čára
-  doc
-    .moveTo(50, doc.y + 2)
-    .lineTo(545, doc.y + 2)
-    .stroke();
+doc.fontSize(11)
+  .text("Popis", 50, tableTop)
+  .text("Množství", 400, tableTop, { width: 60, align: "right" })
+  .text("Cena", 480, tableTop, { width: 80, align: "right" });
 
-  doc.moveDown(0.5);
+// Oddělovací čára
+doc
+  .moveTo(50, tableTop + 15)
+  .lineTo(550, tableTop + 15)
+  .stroke();
 
-  // Řádek položky
-  doc.text("TEAM licence – ListLab", 50, doc.y, { continued: true });
-  doc.text("1", 370, doc.y, { continued: true });
-  doc.text(`${(invoice.amountPaid / 100).toFixed(2)} Kč`, 450, doc.y);
+doc.moveDown(1);
+
+// Řádek položky
+const rowY = doc.y;
+
+doc.fontSize(11)
+  .text("TEAM licence – ListLab", 50, rowY)
+  .text(
+    quantity.toString(),
+    400,
+    rowY,
+    { width: 60, align: "right" }
+  )
+  .text(
+    `${price.toFixed(2)} Kč`,
+    480,
+    rowY,
+    { width: 80, align: "right" }
+  );
+
 
   doc.moveDown(2);
 
