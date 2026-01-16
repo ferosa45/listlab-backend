@@ -127,6 +127,11 @@ model Invoice {
   currency        String
   status          String   // PAID | DRAFT | CANCELED
 
+   // 🔥 NOVÉ
+  periodStart DateTime?
+  periodEnd   DateTime?
+
+
   issuedAt        DateTime
   createdAt       DateTime @default(now())
 

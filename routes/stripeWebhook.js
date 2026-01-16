@@ -41,6 +41,7 @@ if (event.type === "invoice.paid") {
   console.log("🧾 invoice.paid:", stripeInvoice.id);
 
   await prisma.$transaction(async (tx) => {
+    // 🔒 idempotence
     const exists = await tx.invoice.findUnique({
       where: { stripeInvoiceId: stripeInvoice.id },
     });
@@ -50,6 +51,7 @@ if (event.type === "invoice.paid") {
       return;
     }
 
+    // 🏫 škola podle Stripe customer
     const school = await tx.school.findFirst({
       where: { stripeCustomerId: stripeInvoice.customer },
     });
@@ -61,28 +63,56 @@ if (event.type === "invoice.paid") {
       return;
     }
 
+    // 🔢 interní číslování
     const { year, sequence, number } =
       await generateInvoiceNumber(tx);
+
+    // 🧠 FAKTURAČNÍ OBDOBÍ ZE STRIPE
+    const line = stripeInvoice.lines?.data?.[0];
+
+    const periodStart = line?.period?.start
+      ? new Date(line.period.start * 1000)
+      : null;
+
+    const periodEnd = line?.period?.end
+      ? new Date(line.period.end * 1000)
+      : null;
+
+    console.log(
+      "📆 Invoice period:",
+      periodStart,
+      "→",
+      periodEnd
+    );
 
     console.log("📄 Creating invoice:", number);
 
     await tx.invoice.create({
       data: {
+        // Stripe vazby
         stripeInvoiceId: stripeInvoice.id,
         stripeCustomerId: stripeInvoice.customer,
         stripeSubscriptionId: stripeInvoice.subscription,
 
+        // Interní číslo
         year,
         sequence,
         number,
 
+        // Vazba na školu
         schoolId: school.id,
 
+        // Finance
         amountPaid: stripeInvoice.amount_paid,
         currency: stripeInvoice.currency,
         status: "PAID",
         issuedAt: new Date(stripeInvoice.created * 1000),
 
+        // 🔥 NOVÉ: fakturované období
+        periodStart,
+        periodEnd,
+
+        // Billing snapshot
         billingName: school.billingName,
         billingStreet: school.billingStreet,
         billingCity: school.billingCity,
@@ -96,6 +126,7 @@ if (event.type === "invoice.paid") {
     console.log("✅ Internal invoice created:", number);
   });
 }
+
 
 
     try {

@@ -62,7 +62,14 @@ function drawHeader(doc, invoice, x, width) {
     .text(`Číslo faktury: ${invoice.number}`, x + width - 200, 55, { align: "right" })
     .text(`Datum vystavení: ${invoice.issuedAt.toLocaleDateString("cs-CZ")}`, x + width - 200, 72, { align: "right" });
 
-  doc.moveTo(x, 110).lineTo(x + width, 110).strokeColor("#e5e7eb").stroke();
+  doc.text(
+  `Období předplatného: ${formatDate(invoice.periodStart)} – ${formatDate(invoice.periodEnd)}`,
+  x + width - 200,
+  89,
+  { align: "right" }
+);
+
+    doc.moveTo(x, 110).lineTo(x + width, 110).strokeColor("#e5e7eb").stroke();
 }
 
 function drawParties(doc, invoice, x, width) {
@@ -70,9 +77,6 @@ function drawParties(doc, invoice, x, width) {
 
   // DODAVATEL
  doc.font("Bold").fontSize(11).text("Dodavatel", x, y);
-
-doc.font("Bold").fontSize(10)
-  .text("ListLab", x, y + 18);
 
 doc.font("Regular").fontSize(10)
   .text("Ing. Ondřej Krčal", x, y + 33)
