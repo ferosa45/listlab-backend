@@ -1625,6 +1625,11 @@ app.post("/api/team/billing", authMiddleware, async (req, res) => {
 
 // ---------- SEZNAM FAKTURR ----------
 app.get("/api/invoices", authMiddleware, async (req, res) => {
+   // 🔎 DEBUG – KRITICKÉ LOGY
+  console.log("AUTH HEADER:", req.headers.authorization);
+  console.log("COOKIES:", req.cookies);
+  console.log("REQ.USER:", req.user);
+  
   try {
     // 🔐 jen admin školy
     if (req.user.role !== "SCHOOL_ADMIN") {
