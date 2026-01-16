@@ -6,108 +6,162 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export function generateInvoicePdf(invoice) {
+  const doc = new PDFDocument({ size: "A4", margin: 50 });
 
-  const doc = new PDFDocument({
-    size: "A4",
-    margin: 50,
-  });
-
-  // ===== FONT =====
   const fontPath = path.join(__dirname, "../../fonts/DejaVuSans.ttf");
-  doc.font(fontPath);
+  doc.registerFont("Regular", fontPath);
+  doc.registerFont("Bold", fontPath);
 
-  // ===== HLAVIČKA =====
-// ===== HLAVIČKA =====
-doc
-  .font(fontPath)
-  .fontSize(24)
-  .text("FAKTURA", {
-    align: "center",
-  });
+  doc.font("Regular");
 
-doc.moveDown(2);
+  // ========================
+  // KONSTANTY
+  // ========================
+  const MARGIN = 50;
+  const PAGE_WIDTH = doc.page.width - MARGIN * 2;
 
+  // ========================
+  // HLAVIČKA
+  // ========================
+  drawHeader(doc, invoice, MARGIN, PAGE_WIDTH);
 
-  // ===== ZÁKLADNÍ INFO =====
-  doc.fontSize(11);
-  doc.text(`Číslo faktury: ${invoice.number}`);
-  doc.text(
-    `Datum vystavení: ${invoice.issuedAt.toLocaleDateString("cs-CZ")}`
-  );
+  // ========================
+  // DODAVATEL / ODBĚRATEL
+  // ========================
+  drawParties(doc, invoice, MARGIN, PAGE_WIDTH);
 
-  doc.moveDown(2);
+  // ========================
+  // POLOŽKY
+  // ========================
+  drawItemsTable(doc, invoice, MARGIN, PAGE_WIDTH);
 
-  // ===== ODBĚRATEL =====
-  doc.fontSize(13).text("Odběratel", { underline: true });
-  doc.moveDown(0.5);
+  // ========================
+  // SOUHRN
+  // ========================
+  drawSummary(doc, invoice, MARGIN, PAGE_WIDTH);
 
-  doc.fontSize(11);
-  doc.text(invoice.billingName);
-  doc.text(invoice.billingStreet);
-  doc.text(`${invoice.billingZip} ${invoice.billingCity}`);
-  doc.text(invoice.billingCountry);
+  // ========================
+  // PATIČKA
+  // ========================
+  drawFooter(doc, invoice, MARGIN, PAGE_WIDTH);
+
+  return doc;
+}
+
+// ======================================================
+// SEKCE
+// ======================================================
+
+function drawHeader(doc, invoice, x, width) {
+  doc.font("Bold").fontSize(24).text("ListLab", x, 50);
+
+  doc.font("Regular").fontSize(11).fillColor("#555")
+    .text("Faktura – daňový doklad", x, 80);
+
+  doc.fillColor("#000").fontSize(10)
+    .text(`Číslo faktury: ${invoice.number}`, x + width - 200, 55, { align: "right" })
+    .text(`Datum vystavení: ${invoice.issuedAt.toLocaleDateString("cs-CZ")}`, x + width - 200, 72, { align: "right" });
+
+  doc.moveTo(x, 110).lineTo(x + width, 110).strokeColor("#e5e7eb").stroke();
+}
+
+function drawParties(doc, invoice, x, width) {
+  const y = 130;
+
+  // DODAVATEL
+  doc.font("Bold").fontSize(11).text("Dodavatel", x, y);
+  doc.font("Regular").fontSize(10)
+    .text("ListLab Ing. Ondřej Krčal", x, y + 18)
+    .text("Čs. Armády 1199/26", x, y + 33)
+    .text("748 01 Hlučín", x, y + 48)
+    .text("IČO: 05241502", x, y + 63)
+    .text("E-mail: info@listlab.cz", x, y + 78)
+    .text("Telefon: 604 800 894", x, y + 93);
+
+  // ODBĚRATEL
+  const rightX = x + width / 2 + 20;
+
+  doc.font("Bold").fontSize(11).text("Odběratel", rightX, y);
+  doc.font("Regular").fontSize(10)
+    .text(invoice.billingName, rightX, y + 18)
+    .text(invoice.billingStreet, rightX, y + 33)
+    .text(`${invoice.billingZip} ${invoice.billingCity}`, rightX, y + 48)
+    .text(invoice.billingCountry || "", rightX, y + 63);
 
   if (invoice.billingIco) {
-    doc.text(`IČO: ${invoice.billingIco}`);
+    doc.text(`IČO: ${invoice.billingIco}`, rightX, y + 78);
   }
 
   if (invoice.billingEmail) {
-    doc.text(`Email: ${invoice.billingEmail}`);
+    doc.text(`E-mail: ${invoice.billingEmail}`, rightX, y + 93);
   }
+}
 
-  doc.moveDown(2);
+function drawItemsTable(doc, invoice, x, width) {
+  let y = 270;
 
- // ===== POLOŽKY =====
-doc.moveDown(1);
-doc.fontSize(13).text("Položky", { underline: true });
-doc.moveDown(0.5);
+  const cols = {
+    name: x,
+    qty: x + 300,
+    price: x + 370,
+    total: x + 460,
+  };
 
-// hlavička tabulky
-doc.fontSize(11)
-  .text("Popis", 50)
-  .text("Množství", 400, doc.y - 14, { width: 60, align: "right" })
-  .text("Cena", 480, doc.y - 14, { width: 80, align: "right" });
+  // HLAVIČKA TABULKY
+  doc.rect(x, y - 6, width, 26).fill("#f3f4f6");
 
-doc.moveDown(0.3);
-doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+  doc.fillColor("#000").font("Bold").fontSize(10);
+  doc.text("Popis", cols.name, y);
+  doc.text("Ks", cols.qty, y, { width: 40, align: "right" });
+  doc.text("Cena", cols.price, y, { width: 60, align: "right" });
+  doc.text("Celkem", cols.total, y, { width: 80, align: "right" });
 
-doc.moveDown(0.5);
+  y += 30;
+  doc.font("Regular");
 
-// 🔥 DATA
-const quantity = 1;
-const price = invoice.amountPaid / 100;
+  const quantity = 1;
+  const price = invoice.amountPaid / 100;
 
-const rowY = doc.y;
+  // POLOŽKA
+  doc.text("TEAM licence – ListLab", cols.name, y);
+  doc.text(quantity.toString(), cols.qty, y, { width: 40, align: "right" });
+  doc.text(formatPrice(price), cols.price, y, { width: 60, align: "right" });
+  doc.text(formatPrice(price), cols.total, y, { width: 80, align: "right" });
 
-doc.fontSize(11)
-  .text("TEAM licence – ListLab", 50, rowY)
-  .text(quantity.toString(), 400, rowY, { width: 60, align: "right" })
-  .text(`${price.toFixed(2)} Kč`, 480, rowY, { width: 80, align: "right" });
+  y += 22;
+  doc.moveTo(x, y).lineTo(x + width, y).strokeColor("#e5e7eb").stroke();
 
+  doc.y = y + 25;
+}
 
+function drawSummary(doc, invoice, x, width) {
+  const y = doc.y;
+  const right = x + width;
 
-  doc.moveDown(2);
+  const total = invoice.amountPaid / 100;
 
-  // ===== SOUHRN =====
-  doc.fontSize(13).text("Souhrn", { underline: true });
-  doc.moveDown(0.5);
+  doc.font("Regular").fontSize(10);
 
-  doc.fontSize(11);
-  doc.text(
-    `Celkem zaplaceno: ${(invoice.amountPaid / 100).toFixed(2)} Kč`,
-    { align: "right" }
-  );
+  doc.text("Celkem bez DPH:", right - 200, y, { width: 120, align: "right" });
+  doc.text(formatPrice(total), right - 80, y, { align: "right" });
 
-  // ===== PATIČKA =====
-  doc.moveDown(3);
-  doc
-    .fontSize(9)
-    .fillColor("gray")
-    .text("Vygenerováno systémem ListLab", {
-      align: "center",
-    });
+  doc.moveDown(0.8);
+  doc.font("Bold").fontSize(13);
 
-  doc.fillColor("black");
+  doc.text("Celkem k úhradě:", right - 200, doc.y, { width: 120, align: "right" });
+  doc.text(formatPrice(total), right - 80, doc.y, { align: "right" });
+}
 
-  return doc;
+function drawFooter(doc, invoice, x, width) {
+  doc.font("Regular").fontSize(9).fillColor("#666");
+
+  doc.text("Faktura byla uhrazena online prostřednictvím Stripe.", x, 720);
+  doc.text("Vygenerováno systémem ListLab", x, 735);
+  doc.text("Děkujeme za využití ListLab ❤️", x, 760, { align: "center", width });
+
+  doc.fillColor("#000");
+}
+
+function formatPrice(value) {
+  return `${Number(value).toFixed(2)} Kč`;
 }
