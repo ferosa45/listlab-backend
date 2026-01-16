@@ -2,6 +2,10 @@
 import express from "express";
 import Stripe from "stripe";
 import { prisma } from "../src/lib/prisma.js";
+import { generateInvoiceNumber } from "../src/services/invoiceNumber.js";
+
+console.log("🧪 generateInvoiceNumber import:", typeof generateInvoiceNumber);
+
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const router = express.Router();
