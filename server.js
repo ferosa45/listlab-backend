@@ -18,7 +18,7 @@ import { generateInvoicePdf } from "./src/services/generateInvoicePdf.js";
 
 
 
-// ---------- CUSTOM SERVICES & MIDDLEWARE ----------
+// ---------- CUSTOM SERVICES & MIDDLEWAREE ----------
 import { licenseContext } from "./src/middleware/licenseContext.js";
 import { checkWorksheetLimit, checkAiLimit } from "./src/middleware/usageLimits.js";
 import {

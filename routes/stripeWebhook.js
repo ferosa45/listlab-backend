@@ -33,7 +33,7 @@ router.post(
 
     console.log("➡️ Stripe event:", event.type);
 // --------------------------------------------------
-// 🧾 FAKTURA ZAPLACENA → vytvoření INTERNÍ FAKTURY
+// 🧾 FAKTURA ZAPLACENA → vytvoření INTERNÍ FAKTURYY
 // --------------------------------------------------
 if (event.type === "invoice.paid") {
   const stripeInvoice = event.data.object;
