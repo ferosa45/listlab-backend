@@ -35,13 +35,15 @@ router.post(
 // --------------------------------------------------
 // 🧾 FAKTURA ZAPLACENA → vytvoření INTERNÍ FAKTURYY
 // --------------------------------------------------
+// 🧾 FAKTURA ZAPLACENA → vytvoření INTERNÍ FAKTURY
+// --------------------------------------------------
 if (event.type === "invoice.paid") {
   const stripeInvoice = event.data.object;
 
   console.log("🧾 invoice.paid:", stripeInvoice.id);
 
   await prisma.$transaction(async (tx) => {
-    // 🔒 idempotence
+    // 🔒 IDEMPOTENCE
     const exists = await tx.invoice.findUnique({
       where: { stripeInvoiceId: stripeInvoice.id },
     });
@@ -51,23 +53,67 @@ if (event.type === "invoice.paid") {
       return;
     }
 
-    // 🏫 škola podle Stripe customer
-    const school = await tx.school.findFirst({
+    // --------------------------------------------------
+    // 🏫 DOHLEDÁNÍ ŠKOLY
+    // --------------------------------------------------
+
+    // 1️⃣ primárně přes stripeCustomerId
+    let school = await tx.school.findFirst({
       where: { stripeCustomerId: stripeInvoice.customer },
     });
+
+    // 2️⃣ 🔥 FALLBACK: přes subscription metadata
+    if (!school && stripeInvoice.subscription) {
+      console.warn(
+        "⚠️ School not found via stripeCustomerId, trying subscription metadata"
+      );
+
+      const subscription = await stripe.subscriptions.retrieve(
+        stripeInvoice.subscription
+      );
+
+      const metaSchoolId = subscription.metadata?.schoolId;
+
+      if (metaSchoolId) {
+        school = await tx.school.findUnique({
+          where: { id: metaSchoolId },
+        });
+
+        // 🔧 BACKFILL stripeCustomerId
+        if (school && !school.stripeCustomerId) {
+          await tx.school.update({
+            where: { id: school.id },
+            data: {
+              stripeCustomerId: stripeInvoice.customer,
+            },
+          });
+
+          console.log(
+            "🧩 stripeCustomerId backfilled for school:",
+            school.id
+          );
+        }
+      }
+    }
 
     console.log("🏫 School lookup result:", school?.id);
 
     if (!school) {
-      console.warn("⚠️ School not found for invoice");
+      console.warn(
+        "⚠️ School not found for invoice (even after fallback)"
+      );
       return;
     }
 
-    // 🔢 interní číslování
+    // --------------------------------------------------
+    // 🔢 INTERNÍ ČÍSLOVÁNÍ
+    // --------------------------------------------------
     const { year, sequence, number } =
       await generateInvoiceNumber(tx);
 
-    // 🧠 FAKTURAČNÍ OBDOBÍ ZE STRIPE
+    // --------------------------------------------------
+    // 📆 FAKTURAČNÍ OBDOBÍ ZE STRIPE
+    // --------------------------------------------------
     const line = stripeInvoice.lines?.data?.[0];
 
     const periodStart = line?.period?.start
@@ -85,6 +131,9 @@ if (event.type === "invoice.paid") {
       periodEnd
     );
 
+    // --------------------------------------------------
+    // 🧾 VYTVOŘENÍ INTERNÍ FAKTURY
+    // --------------------------------------------------
     console.log("📄 Creating invoice:", number);
 
     await tx.invoice.create({
@@ -108,7 +157,7 @@ if (event.type === "invoice.paid") {
         status: "PAID",
         issuedAt: new Date(stripeInvoice.created * 1000),
 
-        // 🔥 NOVÉ: fakturované období
+        // 🔥 FAKTUROVANÉ OBDOBÍ
         periodStart,
         periodEnd,
 
@@ -126,6 +175,7 @@ if (event.type === "invoice.paid") {
     console.log("✅ Internal invoice created:", number);
   });
 }
+
 
 
 
