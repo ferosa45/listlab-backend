@@ -183,8 +183,8 @@ function drawItemsTable(doc, invoice, x, width) {
   const tableWidth = tableRightEdge - x;
 
   // ===== HLAVIČKA TABULKY =====
-  const headerHeight = 32;
-  const headerTextY = y + 4;
+  const headerHeight = 36;
+  const headerTextY = y + 8;
 
   doc.rect(x, y - 8, tableWidth, headerHeight).fill("#f3f4f6");
 
