@@ -183,17 +183,36 @@ function drawItemsTable(doc, invoice, x, width) {
   const tableWidth = tableRightEdge - x;
 
   // ===== HLAVIČKA TABULKY =====
-  const headerHeight = 36;
-  const headerTextY = y + 8;
+  const headerHeight = 32;
+  const headerTextY = y + 4;
 
-  doc.rect(x, y - 8, tableWidth, headerHeight).fill("#f3f4f6");
+  const headerPaddingX = 10;
 
-  doc.fillColor("#000").font("Bold").fontSize(10);
-  doc.text("Popis", cols.name, headerTextY);
-  doc.text("Ks", cols.qty, headerTextY, { width: 40, align: "right" });
-  doc.text("Cena", cols.price, headerTextY, { width: 70, align: "right" });
-  doc.text("Celkem", cols.total, headerTextY, { width: 90, align: "right" });
+// šedý podklad – širší
+doc
+  .rect(
+    x - headerPaddingX,
+    y - 8,
+    tableWidth + headerPaddingX * 2,
+    headerHeight
+  )
+  .fill("#f3f4f6");
 
+// texty – posunuté dovnitř
+doc.fillColor("#000").font("Bold").fontSize(10);
+doc.text("Popis", cols.name + headerPaddingX, headerTextY);
+doc.text("Ks", cols.qty, headerTextY, {
+  width: 40,
+  align: "right",
+});
+doc.text("Cena", cols.price, headerTextY, {
+  width: 70,
+  align: "right",
+});
+doc.text("Celkem", cols.total, headerTextY, {
+  width: 90,
+  align: "right",
+});
   y += headerHeight;
   doc.font("Regular");
 
