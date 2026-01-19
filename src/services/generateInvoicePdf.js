@@ -53,70 +53,117 @@ export function generateInvoicePdf(invoice) {
 // ======================================================
 
 function drawHeader(doc, invoice, x, width) {
+  // Logo / název
   doc.font("Bold").fontSize(24).text("ListLab", x, 50);
 
-  doc.font("Regular").fontSize(11).fillColor("#555")
-    .text("Faktura – daňový doklad", x, 80);
+  doc.font("Regular")
+     .fontSize(11)
+     .fillColor("#555")
+     .text("Faktura – daňový doklad", x, 80);
 
-  doc.fillColor("#000").fontSize(10)
-    .text(`Číslo faktury: ${invoice.number}`, x + width - 200, 55, { align: "right" })
-    .text(
-      `Datum vystavení: ${invoice.issuedAt.toLocaleDateString("cs-CZ")}`,
-      x + width - 200,
-      72,
-      { align: "right" }
-    );
+  // ===== PRAVÝ BLOK =====
+  let rightY = 55;
+  const rightX = x + width - 200;
+  const lineHeight = 17;
+
+  doc.fillColor("#000").fontSize(10);
+
+  doc.text(`Číslo faktury: ${invoice.number}`, rightX, rightY, {
+    align: "right",
+    width: 200,
+  });
+  rightY += lineHeight;
+
+  doc.text(
+    `Datum vystavení: ${formatDate(invoice.issuedAt)}`,
+    rightX,
+    rightY,
+    { align: "right", width: 200 }
+  );
+  rightY += lineHeight;
 
   if (invoice.periodStart && invoice.periodEnd) {
     doc.text(
       `Období předplatného: ${formatDate(invoice.periodStart)} – ${formatDate(invoice.periodEnd)}`,
-      x + width - 200,
-      89,
-      { align: "right" }
+      rightX,
+      rightY,
+      { align: "right", width: 200 }
     );
+    rightY += lineHeight;
   }
 
-  // oddělovací linka – patří VŽDY, ne jen když je období
-  doc.moveTo(x, 110)
-     .lineTo(x + width, 110)
-     .strokeColor("#e5e7eb")
-     .stroke();
+  // ===== ODDĚLOVACÍ ČÁRA =====
+  doc
+    .moveTo(x, rightY + 10)
+    .lineTo(x + width, rightY + 10)
+    .strokeColor("#e5e7eb")
+    .stroke();
 }
+
 
 
 function drawParties(doc, invoice, x, width) {
-  const y = 130;
+  const startY = 130;
+  const padding = 12;
+  const line = 15;
 
-  // DODAVATEL
- doc.font("Bold").fontSize(11).text("Dodavatel", x, y);
+  // začátek boxu
+  const boxTop = startY - padding;
 
-doc.font("Regular").fontSize(10)
-  .text("Ing. Ondřej Krčal", x, y + 33)
-  .text("Čs. Armády 1199/26", x, y + 48)
-  .text("748 01 Hlučín", x, y + 63)
-  .text("IČO: 05241502", x, y + 78)
-  .text("E-mail: info@listlab.cz", x, y + 93)
-  .text("Telefon: 604 800 894", x, y + 108);
+  // ===== DODAVATEL =====
+  doc.font("Bold").fontSize(11).text("Dodavatel", x, startY);
 
+  let leftY = startY + 18;
+  doc.font("Regular").fontSize(10);
 
-  // ODBĚRATEL
+  doc.text("Ing. Ondřej Krčal", x, leftY); leftY += line;
+  doc.text("Čs. Armády 1199/26", x, leftY); leftY += line;
+  doc.text("748 01 Hlučín", x, leftY); leftY += line;
+  doc.text("IČO: 05241502", x, leftY); leftY += line;
+  doc.text("E-mail: info@listlab.cz", x, leftY); leftY += line;
+  doc.text("Telefon: 604 800 894", x, leftY);
+
+  // ===== ODBĚRATEL =====
   const rightX = x + width / 2 + 20;
 
-  doc.font("Bold").fontSize(11).text("Odběratel", rightX, y);
-  doc.font("Regular").fontSize(10)
-    .text(invoice.billingName, rightX, y + 18)
-    .text(invoice.billingStreet, rightX, y + 33)
-    .text(`${invoice.billingZip} ${invoice.billingCity}`, rightX, y + 48)
-    .text(invoice.billingCountry || "", rightX, y + 63);
+  doc.font("Bold").fontSize(11).text("Odběratel", rightX, startY);
+
+  let rightY = startY + 18;
+  doc.font("Regular").fontSize(10);
+
+  doc.text(invoice.billingName, rightX, rightY); rightY += line;
+  doc.text(invoice.billingStreet, rightX, rightY); rightY += line;
+  doc.text(`${invoice.billingZip} ${invoice.billingCity}`, rightX, rightY); rightY += line;
+  doc.text(invoice.billingCountry || "", rightX, rightY); rightY += line;
 
   if (invoice.billingIco) {
-    doc.text(`IČO: ${invoice.billingIco}`, rightX, y + 78);
+    doc.text(`IČO: ${invoice.billingIco}`, rightX, rightY);
+    rightY += line;
   }
 
   if (invoice.billingEmail) {
-    doc.text(`E-mail: ${invoice.billingEmail}`, rightX, y + 93);
+    doc.text(`E-mail: ${invoice.billingEmail}`, rightX, rightY);
   }
+
+  // ===== RÁMEČEK =====
+  const boxBottom = Math.max(leftY, rightY) + padding;
+
+  doc
+    .rect(
+      x - padding,
+      boxTop,
+      width + padding * 2,
+      boxBottom - boxTop
+    )
+    .strokeColor("#e5e7eb")
+    .lineWidth(1)
+    .stroke();
+
+  // posun kurzoru pod box
+  doc.y = boxBottom + 15;
 }
+
+
 
 
 
