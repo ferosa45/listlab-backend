@@ -102,8 +102,8 @@ function drawHeader(doc, invoice, x, width) {
 
 
 function drawParties(doc, invoice, x, width) {
-  const startY = 130;
-  const padding = 12;
+  const startY = 155;
+  const padding = 18;
   const line = 15;
 
   // začátek boxu
@@ -184,13 +184,13 @@ function drawItemsTable(doc, invoice, x, width) {
   const tableWidth = tableRightEdge - x;
 
   // HLAVIČKA TABULKY
-  doc.rect(x, y - 6, tableWidth, 26).fill("#f3f4f6");
+  doc.rect(x, y - 8, tableWidth, 26).fill("#f3f4f6");
 
-  doc.fillColor("#000").font("Bold").fontSize(10);
-  doc.text("Popis", cols.name, y);
-  doc.text("Ks", cols.qty, y, { width: 40, align: "right" });
-  doc.text("Cena", cols.price, y, { width: 70, align: "right" });
-  doc.text("Celkem", cols.total, y, { width: 90, align: "right" });
+doc.fillColor("#000").font("Bold").fontSize(10);
+doc.text("Popis", cols.name, headerTextY);
+doc.text("Ks", cols.qty, headerTextY, { width: 40, align: "right" });
+doc.text("Cena", cols.price, headerTextY, { width: 70, align: "right" });
+doc.text("Celkem", cols.total, headerTextY, { width: 90, align: "right" });
 
   y += 30;
   doc.font("Regular");
@@ -204,13 +204,13 @@ function drawItemsTable(doc, invoice, x, width) {
   doc.text(formatPrice(price), cols.price, y, { width: 70, align: "right" });
   doc.text(formatPrice(price), cols.total, y, { width: 90, align: "right" });
 
-  y += 22;
+  y += 26;
   doc.moveTo(x, y)
      .lineTo(tableRightEdge, y)
      .strokeColor("#e5e7eb")
      .stroke();
 
-  doc.y = y + 25;
+  doc.y = y + 20;
 }
 
 
