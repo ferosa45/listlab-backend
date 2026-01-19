@@ -27,14 +27,14 @@ router.get("/", requireAuth, async (req, res) => {
       orderBy: {
         issuedAt: "desc",
       },
-      select: {
-        id: true,
-        number: true,
-        issuedAt: true,
-        amountPaid: true,
-        currency: true,
-        status: true,
-      },
+      // select: {
+      //   id: true,
+      //   number: true,
+      //   issuedAt: true,
+      //   amountPaid: true,
+      //   currency: true,
+      //   status: true,
+      // },
     });
 
     res.json({
