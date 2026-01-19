@@ -60,18 +60,29 @@ function drawHeader(doc, invoice, x, width) {
 
   doc.fillColor("#000").fontSize(10)
     .text(`Číslo faktury: ${invoice.number}`, x + width - 200, 55, { align: "right" })
-    .text(`Datum vystavení: ${invoice.issuedAt.toLocaleDateString("cs-CZ")}`, x + width - 200, 72, { align: "right" });
+    .text(
+      `Datum vystavení: ${invoice.issuedAt.toLocaleDateString("cs-CZ")}`,
+      x + width - 200,
+      72,
+      { align: "right" }
+    );
 
   if (invoice.periodStart && invoice.periodEnd) {
-  doc.text(
-    `Období předplatného: ${formatDate(invoice.periodStart)} – ${formatDate(invoice.periodEnd)}`,
-    x + width - 200,
-    89,
-    { align: "right" }
-);
+    doc.text(
+      `Období předplatného: ${formatDate(invoice.periodStart)} – ${formatDate(invoice.periodEnd)}`,
+      x + width - 200,
+      89,
+      { align: "right" }
+    );
+  }
 
-    doc.moveTo(x, 110).lineTo(x + width, 110).strokeColor("#e5e7eb").stroke();
+  // oddělovací linka – patří VŽDY, ne jen když je období
+  doc.moveTo(x, 110)
+     .lineTo(x + width, 110)
+     .strokeColor("#e5e7eb")
+     .stroke();
 }
+
 
 function drawParties(doc, invoice, x, width) {
   const y = 130;
