@@ -170,7 +170,7 @@ function drawParties(doc, invoice, x, width) {
 
 function drawItemsTable(doc, invoice, x, width) {
 
-  let y = 270;
+  let y = 300;
 
   const cols = {
     name: x,
@@ -179,26 +179,28 @@ function drawItemsTable(doc, invoice, x, width) {
     total: x + 430,
   };
 
-  // skutečný konec tabulky
-  const tableRightEdge = cols.total + 90; // 90 = šířka "Celkem"
+  const tableRightEdge = cols.total + 90;
   const tableWidth = tableRightEdge - x;
 
-  // HLAVIČKA TABULKY
-  doc.rect(x, y - 8, tableWidth, 26).fill("#f3f4f6");
+  // ===== HLAVIČKA TABULKY =====
+  const headerHeight = 32;
+  const headerTextY = y + 4;
 
-doc.fillColor("#000").font("Bold").fontSize(10);
-doc.text("Popis", cols.name, headerTextY);
-doc.text("Ks", cols.qty, headerTextY, { width: 40, align: "right" });
-doc.text("Cena", cols.price, headerTextY, { width: 70, align: "right" });
-doc.text("Celkem", cols.total, headerTextY, { width: 90, align: "right" });
+  doc.rect(x, y - 8, tableWidth, headerHeight).fill("#f3f4f6");
 
-  y += 30;
+  doc.fillColor("#000").font("Bold").fontSize(10);
+  doc.text("Popis", cols.name, headerTextY);
+  doc.text("Ks", cols.qty, headerTextY, { width: 40, align: "right" });
+  doc.text("Cena", cols.price, headerTextY, { width: 70, align: "right" });
+  doc.text("Celkem", cols.total, headerTextY, { width: 90, align: "right" });
+
+  y += headerHeight;
   doc.font("Regular");
 
   const quantity = 1;
   const price = invoice.amountPaid / 100;
 
-  // POLOŽKA
+  // ===== POLOŽKA =====
   doc.text("TEAM licence – ListLab", cols.name, y);
   doc.text(quantity.toString(), cols.qty, y, { width: 40, align: "right" });
   doc.text(formatPrice(price), cols.price, y, { width: 70, align: "right" });
@@ -212,6 +214,7 @@ doc.text("Celkem", cols.total, headerTextY, { width: 90, align: "right" });
 
   doc.y = y + 20;
 }
+
 
 
 function drawSummary(doc, invoice, x, width) {
