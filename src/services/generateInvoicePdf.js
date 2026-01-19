@@ -53,7 +53,6 @@ export function generateInvoicePdf(invoice) {
 // ======================================================
 
 function drawHeader(doc, invoice, x, width) {
-  // Logo / název
   doc.font("Bold").fontSize(24).text("ListLab", x, 50);
 
   doc.font("Regular")
@@ -64,41 +63,41 @@ function drawHeader(doc, invoice, x, width) {
   // ===== PRAVÝ BLOK =====
   let rightY = 55;
   const rightX = x + width - 200;
-  const lineHeight = 17;
+  const line = 15;
 
   doc.fillColor("#000").fontSize(10);
 
   doc.text(`Číslo faktury: ${invoice.number}`, rightX, rightY, {
-    align: "right",
     width: 200,
+    align: "right",
   });
-  rightY += lineHeight;
+  rightY += line;
 
-  doc.text(
-    `Datum vystavení: ${formatDate(invoice.issuedAt)}`,
-    rightX,
-    rightY,
-    { align: "right", width: 200 }
-  );
-  rightY += lineHeight;
+  doc.text(`Datum vystavení: ${formatDate(invoice.issuedAt)}`, rightX, rightY, {
+    width: 200,
+    align: "right",
+  });
+  rightY += line;
 
   if (invoice.periodStart && invoice.periodEnd) {
-    doc.text(
-      `Období předplatného: ${formatDate(invoice.periodStart)} – ${formatDate(invoice.periodEnd)}`,
-      rightX,
-      rightY,
-      { align: "right", width: 200 }
-    );
-    rightY += lineHeight;
-  }
+    doc.fillColor("#555")
+       .text("Období předplatného:", rightX, rightY, {
+         width: 200,
+         align: "right",
+       });
+    rightY += line;
 
-  // ===== ODDĚLOVACÍ ČÁRA =====
-  doc
-    .moveTo(x, rightY + 10)
-    .lineTo(x + width, rightY + 10)
-    .strokeColor("#e5e7eb")
-    .stroke();
+    doc.fillColor("#000")
+       .text(
+         `${formatDate(invoice.periodStart)} – ${formatDate(invoice.periodEnd)}`,
+         rightX,
+         rightY,
+         { width: 200, align: "right" }
+       );
+    rightY += line;
+  }
 }
+
 
 
 
@@ -108,7 +107,8 @@ function drawParties(doc, invoice, x, width) {
   const line = 15;
 
   // začátek boxu
-  const boxTop = startY - padding;
+  const boxTop = startY - padding - 8;
+
 
   // ===== DODAVATEL =====
   doc.font("Bold").fontSize(11).text("Dodavatel", x, startY);
