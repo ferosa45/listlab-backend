@@ -49,7 +49,7 @@ export function generateInvoicePdf(invoice) {
 }
 
 // ======================================================
-// SEKCEE
+// SEKCEEES
 // ======================================================
 
 function drawHeader(doc, invoice, x, width) {
@@ -62,11 +62,12 @@ function drawHeader(doc, invoice, x, width) {
     .text(`Číslo faktury: ${invoice.number}`, x + width - 200, 55, { align: "right" })
     .text(`Datum vystavení: ${invoice.issuedAt.toLocaleDateString("cs-CZ")}`, x + width - 200, 72, { align: "right" });
 
+  if (invoice.periodStart && invoice.periodEnd) {
   doc.text(
-  `Období předplatného: ${formatDate(invoice.periodStart)} – ${formatDate(invoice.periodEnd)}`,
-  x + width - 200,
-  89,
-  { align: "right" }
+    `Období předplatného: ${formatDate(invoice.periodStart)} – ${formatDate(invoice.periodEnd)}`,
+    x + width - 200,
+    89,
+    { align: "right" }
 );
 
     doc.moveTo(x, 110).lineTo(x + width, 110).strokeColor("#e5e7eb").stroke();
@@ -182,3 +183,9 @@ function drawFooter(doc, invoice, x, width) {
 function formatPrice(value) {
   return `${Number(value).toFixed(2)} Kč`;
 }
+
+function formatDate(d) {
+  if (!d) return "";
+  return new Date(d).toLocaleDateString("cs-CZ");
+}
+
