@@ -65,14 +65,14 @@ app.use("/api", schoolInvitesRouter);
 
 
 // ---------- COOKIE HELPERS ----------
-function setAuthCookie(res, token) {
-  res.cookie("token", token, {
-    httpOnly: true,
-    secure: true,      // 🔥 MUSÍ BÝT TRUE (Railway = HTTPS)
-    sameSite: "None",  // 🔥 MUSÍ BÝT NONE pro cross-origin
-    path: "/",
-  });
-}
+// function setAuthCookie(res, token) {
+//   res.cookie("token", token, {
+//     httpOnly: true,
+//     secure: true,      // 🔥 MUSÍ BÝT TRUE (Railway = HTTPS)
+//     sameSite: "None",  // 🔥 MUSÍ BÝT NONE pro cross-origin
+//     path: "/",
+//   });
+// }
 
 
 function clearAuthCookie(res) {
