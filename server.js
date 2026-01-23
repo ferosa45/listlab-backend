@@ -16,7 +16,8 @@ import billingRouter from './routes/billing.js'
 import invoiceRoutes from "./routes/invoices.js";
 import { generateInvoicePdf } from "./src/services/generateInvoicePdf.js";
 import schoolInvitesRouter from "./routes/schoolInvites.js";
-import { setAuthCookie } from "./src/utils/authCookies.js";
+import { setAuthCookie } from "./utils/authCookies.js";
+
 
 
 
