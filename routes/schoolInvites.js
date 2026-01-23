@@ -13,6 +13,9 @@ const JWT_SECRET = process.env.JWT_SECRET;
  * vytvoření pozvánky pro učitelee
  */
 router.post("/schools/:id/invites", async (req, res) => {
+  if (!req.user) {
+  return res.status(401).json({ error: "UNAUTHORIZED" });
+}
   try {
     const { email } = req.body;
     const schoolId = req.params.id;
