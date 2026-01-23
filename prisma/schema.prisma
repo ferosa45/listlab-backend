@@ -8,44 +8,46 @@ datasource db {
 }
 
 model User {
-  id                 String         @id @default(uuid())
-  email              String         @unique
-  password           String
-  createdAt          DateTime       @default(now())
-  schoolId           String?
-  role               String         @default("TEACHER")   // TEACHER | SCHOOL_ADMIN | SUPERADMIN
-  stripeCustomerId   String?        @unique
-  subscriptionStatus String?        // active, trialing, past_due, canceled...
-  subscriptionPlan   String?        // basic_monthly, basic_yearly, team
-  subscriptionUntil  DateTime?
-  school             School?        @relation(fields: [schoolId], references: [id])
-  passwordSetupToken     String?  @unique
-  passwordSetupExpires   DateTime?
-  logs               WorksheetLog[]
+  id                   String         @id @default(uuid())
+  email                String         @unique
+  password             String
+  createdAt            DateTime       @default(now())
+  schoolId             String?
+  role                 String         @default("TEACHER") // TEACHER | SCHOOL_ADMIN | SUPERADMIN
+  stripeCustomerId     String?        @unique
+  subscriptionStatus   String? // active, trialing, past_due, canceled...
+  subscriptionPlan     String? // basic_monthly, basic_yearly, team
+  subscriptionUntil    DateTime?
+  school               School?        @relation(fields: [schoolId], references: [id])
+  passwordSetupToken   String?        @unique
+  passwordSetupExpires DateTime?
+  logs                 WorksheetLog[]
+  sentInvites          SchoolInvite[] @relation("InvitedBy")
 }
 
 model School {
-  id                   String      @id @default(uuid())
+  id                   String         @id @default(uuid())
   name                 String
-  createdAt            DateTime    @default(now())
-  stripeCustomerId     String?     @unique
-  stripeSubscriptionId String?     @unique   // pro TEAM plán
-  subscriptionStatus   String?               // active, trialing, past_due, canceled
-  subscriptionPlan     String?               // team_monthly, team_yearly
+  createdAt            DateTime       @default(now())
+  stripeCustomerId     String?        @unique
+  stripeSubscriptionId String?        @unique // pro TEAM plán
+  subscriptionStatus   String? // active, trialing, past_due, canceled
+  subscriptionPlan     String? // team_monthly, team_yearly
   subscriptionUntil    DateTime?
-  seatLimit            Int?                  // počet učitelů, např. 10 seats
+  seatLimit            Int? // počet učitelů, např. 10 seats
   license              License?
   users                User[]
+  invites              SchoolInvite[]
   // 🔥 FAKTURAČNÍ ÚDAJE
-  billingName           String?
-  billingStreet         String?
-  billingCity           String?
-  billingZip            String?
-  billingCountry        String?
-  billingIco            String?
-  billingDic            String?
-  billingEmail          String?
-  invoices Invoice[]   // 👈 TOTO CHYBĚLO
+  billingName          String?
+  billingStreet        String?
+  billingCity          String?
+  billingZip           String?
+  billingCountry       String?
+  billingIco           String?
+  billingDic           String?
+  billingEmail         String?
+  invoices             Invoice[] // 👈 TOTO CHYBĚLO
 }
 
 model License {
@@ -58,28 +60,28 @@ model License {
 }
 
 model Subscription {
-  id                     String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  ownerType              String    // 'USER' | 'SCHOOL'
-  ownerId                String    // user.id nebo school.id
+  ownerType String // 'USER' | 'SCHOOL'
+  ownerId   String // user.id nebo school.id
 
-  planCode               String    // basic_monthly, school_yearly, team_monthly...
-  billingPeriod          String    // monthly, yearly
+  planCode      String // basic_monthly, school_yearly, team_monthly...
+  billingPeriod String // monthly, yearly
 
-  stripeCustomerId       String
-  stripeSubscriptionId   String    @unique
-  stripePriceId          String
+  stripeCustomerId     String
+  stripeSubscriptionId String @unique
+  stripePriceId        String
 
-  status                 String    // active, trialing, past_due, canceled
-  cancelAtPeriodEnd      Boolean   @default(false)
-  currentPeriodStart     DateTime?
-  currentPeriodEnd       DateTime?
+  status             String // active, trialing, past_due, canceled
+  cancelAtPeriodEnd  Boolean   @default(false)
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
 
   // TEAM license
-  seatLimit              Int?
+  seatLimit Int?
 
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([ownerType, ownerId])
   @@index([stripeCustomerId])
@@ -94,8 +96,9 @@ model UsageLimit {
   worksheetsCount Int      @default(0)
   aiGenerations   Int      @default(0)
   updatedAt       DateTime @updatedAt
-  @@index([ownerType, ownerId])
+
   @@unique([ownerType, ownerId, year, month])
+  @@index([ownerType, ownerId])
 }
 
 model WorksheetLog {
@@ -108,43 +111,64 @@ model WorksheetLog {
 }
 
 model Invoice {
-  id              String   @id @default(uuid())
+  id String @id @default(uuid())
 
   // 🔗 Stripe vazby
-  stripeInvoiceId        String   @unique
-  stripeCustomerId      String
-  stripeSubscriptionId  String?
+  stripeInvoiceId      String  @unique
+  stripeCustomerId     String
+  stripeSubscriptionId String?
 
   // interní číslo
-  number          String   @unique
-  year            Int
-  sequence        Int
+  number   String @unique
+  year     Int
+  sequence Int
 
-  schoolId        String
-  school          School   @relation(fields: [schoolId], references: [id])
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
 
-  amountPaid      Int
-  currency        String
-  status          String   // PAID | DRAFT | CANCELED
+  amountPaid Int
+  currency   String
+  status     String // PAID | DRAFT | CANCELED
 
-   // 🔥 NOVÉ
+  // 🔥 NOVÉ
   periodStart DateTime?
   periodEnd   DateTime?
 
-
-  issuedAt        DateTime
-  createdAt       DateTime @default(now())
+  issuedAt  DateTime
+  createdAt DateTime @default(now())
 
   // snapshot billing
-  billingName     String
-  billingStreet   String
-  billingCity     String
-  billingZip      String
-  billingCountry  String
-  billingIco      String?
-  billingEmail    String?
+  billingName    String
+  billingStreet  String
+  billingCity    String
+  billingZip     String
+  billingCountry String
+  billingIco     String?
+  billingEmail   String?
 
   @@unique([year, sequence])
 }
 
+model SchoolInvite {
+  id String @id @default(uuid())
 
+  email String
+  token String @unique
+
+  schoolId    String
+  invitedById String
+
+  role String @default("TEACHER")
+
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  school    School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  invitedBy User   @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@index([email])
+  @@index([schoolId])
+}

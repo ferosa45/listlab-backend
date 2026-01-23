@@ -15,6 +15,8 @@ import stripeWebhookRouter from './routes/stripeWebhook.js'
 import billingRouter from './routes/billing.js'
 import invoiceRoutes from "./routes/invoices.js";
 import { generateInvoicePdf } from "./src/services/generateInvoicePdf.js";
+import schoolInvitesRouter from "./routes/schoolInvites.js";
+
 
 
 
@@ -58,6 +60,8 @@ app.use('/api/stripe/webhook', stripeWebhookRouter)
 app.use(express.json())
 app.use(cookieParser())
 app.use("/api/invoices", invoiceRoutes);
+app.use("/api", authMiddleware, schoolInvitesRouter);
+
 
 // ---------- COOKIE HELPERS ----------
 function setAuthCookie(res, token) {
