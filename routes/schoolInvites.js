@@ -2,7 +2,7 @@ import express from "express";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { prisma } from "../src/lib/prisma.js";
-import { setAuthCookie } from "../src/utils/authCookies.js";
+import { setAuthCookie } from "../utils/authCookies.js";
 
 
 const router = express.Router();
