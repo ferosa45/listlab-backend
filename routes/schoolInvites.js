@@ -10,7 +10,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 /**
  * POST /api/schools/:id/invites
- * vytvoření pozvánky pro učitele
+ * vytvoření pozvánky pro učitelee
  */
 router.post("/schools/:id/invites", async (req, res) => {
   try {
