@@ -168,7 +168,7 @@ app.post(
       { expiresIn: "7d" }
     );
 
-    setAuthCookie(res, token);
+    setAuthCookie(req, res, token);
 
     res.json({
       ok: true,
@@ -211,7 +211,7 @@ app.post("/api/auth/login", async (req, res) => {
     { expiresIn: "7d" }
   );
 
-  setAuthCookie(res, token);
+  setAuthCookie(req, res, token);
 
  res.json({
   ok: true,
@@ -1159,7 +1159,7 @@ app.post("/api/team/start-registration", async (req, res) => {
       { expiresIn: "2h" }
     );
 
-    setAuthCookie(res, token);
+    setAuthCookie(req, res, token);
 
     // 3) vytvoříme školu (zatím bez předplatného)
     const school = await prisma.school.create({
@@ -1246,7 +1246,7 @@ app.post("/api/school/create", authMiddleware, async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    setAuthCookie(res, token);
+    setAuthCookie(req, res, token);
 
     return res.json({
       ok: true,

@@ -1,36 +1,31 @@
 // api/utils/authCookies.js
 
-/**
- * Zjistí, jestli request běží přes HTTPS
- * (Railway / reverse proxy posílá x-forwarded-proto)
- */
 function isHttps(req) {
-  return (
-    req.secure === true ||
-    req.headers["x-forwarded-proto"] === "https"
-  );
+  // 🛡️ obrana proti undefined req
+  if (!req) return false;
+
+  // Express secure flag
+  if (req.secure === true) return true;
+
+  // Reverse proxy (Railway)
+  if (req.headers && req.headers["x-forwarded-proto"] === "https") {
+    return true;
+  }
+
+  return false;
 }
 
-/**
- * Nastaví auth cookie s JWT tak,
- * aby fungovala:
- * - lokálně (localhost + HTTP)
- * - v produkci (HTTPS + cross-site)
- */
 export function setAuthCookie(req, res, token) {
   const secure = isHttps(req);
 
   res.cookie("token", token, {
     httpOnly: true,
-    secure,                       // 🔥 jen pokud HTTPS
+    secure,                       // HTTPS only, pokud je
     sameSite: secure ? "None" : "Lax",
     path: "/",
   });
 }
 
-/**
- * (volitelné) Smazání auth cookie – logout
- */
 export function clearAuthCookie(res) {
   res.clearCookie("token", {
     path: "/",
