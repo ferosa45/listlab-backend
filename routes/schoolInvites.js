@@ -31,7 +31,7 @@ router.post(
 );
 
 /**
- * POST /api/schools/:id/invites
+ * POST /api/schools/:id/invitessss
  * vytvoření pozvánky pro učitelee
  */
 router.post("/schools/:id/invites", async (req, res) => {
