@@ -3,7 +3,7 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { prisma } from "../src/lib/prisma.js";
 import { setAuthCookie } from "../utils/authCookies.js";
-import authMiddleware from "../middleware/authMiddleware.js";
+import { requireAuth } from "../src/middleware/authMiddleware.js";
 
 
 
