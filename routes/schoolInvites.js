@@ -12,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 router.post(
   "/schools/:id/invites",
-  authMiddleware,               // 🔥 TADY JE KLÍČ
+  requireAuth,
   async (req, res) => {
 
     console.log("INVITE DEBUG user:", req.user);
