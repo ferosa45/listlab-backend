@@ -1716,6 +1716,58 @@ app.get("/api/invoices/:id/pdf", authMiddleware, async (req, res) => {
 });
 
 
+// ------------------------------------------------------------------
+// 🏫 GET /api/schools/:id - Detail školy a seznam učitelů
+// ------------------------------------------------------------------
+app.get("/api/schools/:id", requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    // 1. Bezpečnostní kontrola: Uživatel musí patřit do této školy
+    if (user.schoolId !== id && user.role !== "SUPERADMIN") {
+      return res.status(403).json({ 
+        ok: false, 
+        error: "Nemáte oprávnění prohlížet data této školy." 
+      });
+    }
+
+    // 2. Načtení školy z DB vč. učitelů
+    const school = await prisma.school.findUnique({
+      where: { id },
+      include: {
+        users: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            createdAt: true,
+            // Heslo nikdy neposíláme!
+          },
+          orderBy: { createdAt: 'desc' } // Seřadit od nejnovějších
+        }
+      }
+    });
+
+    if (!school) {
+      return res.status(404).json({ ok: false, error: "Škola nenalezena" });
+    }
+
+    // 3. Odeslání odpovědi
+    res.json({
+      ok: true,
+      school: {
+        ...school,
+        // Pokud chceš poslat i kolik zbývá licencí:
+        usersCount: school.users.length
+      }
+    });
+
+  } catch (err) {
+    console.error("❌ CHYBA NAČÍTÁNÍ ŠKOLY:", err);
+    res.status(500).json({ ok: false, error: "Nepodařilo se načíst data školy." });
+  }
+});
 
 
 
