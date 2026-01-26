@@ -49,12 +49,13 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 const NODE_ENV = process.env.NODE_ENV || "development";
 
 // ---------- GLOBAL MIDDLEWAREE ----------
-app.use(
-  cors({
-    origin: [FRONTEND_ORIGIN, "http://localhost:5173"],
-    credentials: true,
-  })
-);
+// server.js
+
+app.use(cors({
+  origin: 'http://localhost:5173', // Musí být přesná adresa frontendu (ne hvězdička *)
+  credentials: true,               // Povoluje cookies
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+}));
 
 // ✅ STRIPE WEBHOOK – musí být před express.json()
 app.use('/api/stripe/webhook', stripeWebhookRouter)

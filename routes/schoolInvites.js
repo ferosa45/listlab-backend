@@ -3,10 +3,32 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { prisma } from "../src/lib/prisma.js";
 import { setAuthCookie } from "../utils/authCookies.js";
+import authMiddleware from "../middleware/authMiddleware.js";
+
 
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
+
+router.post(
+  "/schools/:id/invites",
+  authMiddleware,               // 🔥 TADY JE KLÍČ
+  async (req, res) => {
+
+    console.log("INVITE DEBUG user:", req.user);
+
+    if (!req.user) {
+      return res.status(401).json({ error: "UNAUTHORIZED" });
+    }
+
+    if (req.user.role !== "SCHOOL_ADMIN") {
+      return res.status(403).json({ error: "FORBIDDEN" });
+    }
+
+    // CREATE INVITE LOGIC
+    res.json({ ok: true });
+  }
+);
 
 /**
  * POST /api/schools/:id/invites
