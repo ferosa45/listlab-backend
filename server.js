@@ -17,6 +17,9 @@ import invoiceRoutes from "./routes/invoices.js";
 import { generateInvoicePdf } from "./src/services/generateInvoicePdf.js";
 import schoolInvitesRouter from "./routes/schoolInvites.js";
 import { setAuthCookie } from "./utils/authCookies.js";
+// server.js - úplně nahoře mezi importy
+// 👇 TOTO JE TEN TRIK: "as authMiddleware"
+import { requireAuth as authMiddleware } from "./src/middleware/authMiddleware.js";
 
 
 
@@ -86,7 +89,7 @@ function clearAuthCookie(res) {
 }
 
 
-// ---------- AUTH MIDDLEWARE ----------
+/* // ---------- AUTH MIDDLEWARE ----------
 function authMiddleware(req, res, next) {
   try {
     const token =
@@ -116,7 +119,7 @@ function authMiddleware(req, res, next) {
     console.error("AUTH ERROR:", err);
     return res.status(401).json({ error: "Unauthorized" });
   }
-}
+} */
 
 
 // ---------- HEALTH ----------
@@ -1719,7 +1722,7 @@ app.get("/api/invoices/:id/pdf", authMiddleware, async (req, res) => {
 // ------------------------------------------------------------------
 // 🏫 GET /api/schools/:id - Detail školy a seznam učitelů
 // ------------------------------------------------------------------
-app.get("/api/schools/:id", requireAuth, async (req, res) => {
+app.get("/api/schools/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const user = req.user;
