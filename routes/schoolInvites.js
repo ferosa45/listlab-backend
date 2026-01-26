@@ -208,7 +208,14 @@ router.post("/invites/:token/accept", requireAuth, async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    setAuthCookie(res, newToken);
+    // 🍪 MÍSTO setAuthCookie(res, newToken) DÁME PŘÍMÝ ZÁPIS:
+    res.cookie("token", newToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production", // Na produkci (HTTPS) true, jinak false
+      sameSite: "lax", // Pro auth cookies je často lepší 'lax' nebo 'strict'
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 dní
+      path: "/",
+    });
 
     return res.json({ ok: true });
 
