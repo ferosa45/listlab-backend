@@ -67,6 +67,7 @@ app.use(express.json())
 app.use(cookieParser())
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api", schoolInvitesRouter);
+app.use("/api/billing", billingRouter);
 
 
 // ---------- COOKIE HELPERS ----------
@@ -669,7 +670,7 @@ app.post("/api/admin/schools", authMiddleware, async (req, res) => {
 import Stripe from "stripe";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Vytvoření checkout session
+/* // Vytvoření checkout session
 app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res) => {
   try {
     const { priceId, planCode, billingPeriod } = req.body;
@@ -731,7 +732,7 @@ app.post("/api/billing/create-checkout-session", authMiddleware, async (req, res
       error: "FAILED_TO_CREATE_CHECKOUT_SESSION",
     });
   }
-});
+}); */
 
 
 
