@@ -61,7 +61,6 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
                 amountPaid: invoice.amount_paid,
                 currency: invoice.currency,
                 status: "PAID",
-                invoicePdfUrl: invoice.hosted_invoice_url || invoice.invoice_pdf,
                 issuedAt: new Date(),
                 
                 // 🔥 DOPLNĚNÍ FAKTURAČNÍCH ÚDAJŮ (Povinné pole v DB)
