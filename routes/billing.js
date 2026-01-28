@@ -69,7 +69,7 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
         }
       ],
 
-      success_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/app/school?success=true`,
+      success_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/school-admin?success=true`,
       cancel_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/app/school?canceled=true`,
 
       // 🔥 KLÍČOVÉ: TATO METADATA SI PŘEČTE WEBHOOK
