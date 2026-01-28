@@ -1,47 +1,42 @@
-import { prisma } from "../lib/prisma.js"; // 👈 DŮLEŽITÉ: Přidán import
+// src/services/invoiceNumber.js
+import { prisma } from "../lib/prisma.js"; // 👈 TENTO IMPORT TAM CHYBĚL
 
 export async function generateInvoiceNumber(tx) {
-  // Pokud nedostaneme transakci (tx), použijeme hlavní prisma klient
-  const db = tx || prisma;
+  // Pokud funkce nedostane transakci (tx) z webhooku, použije hlavní prisma klient
+  const db = tx || prisma; 
   
   const year = new Date().getFullYear();
 
   try {
-    // Pokusíme se najít poslední fakturu podle roku a sekvence
-    // (Předpokládá, že máš v DB sloupce 'year' a 'sequence')
+    // Najdeme poslední fakturu v tomto roce
     const last = await db.invoice.findFirst({
-      where: { year },
-      orderBy: { sequence: "desc" },
-      select: { sequence: true },
+      where: { 
+        // Hledáme faktury, jejichž číslo začíná letošním rokem (např. "2026-")
+        number: { startsWith: `${year}-` }
+      },
+      orderBy: { createdAt: "desc" }, // Seřadíme od nejnovější
     });
 
-    const nextSequence = (last?.sequence ?? 0) + 1;
-    
-    // Vygenerujeme formát čísla, např. 2026-000001
-    const number = `${year}-${String(nextSequence).padStart(6, "0")}`;
+    let nextSequence = 1;
 
-    // Vracíme POUZE číslo (string), protože webhook to tak čeká
-    return number;
+    if (last) {
+       // Zkusíme vytáhnout číslo za pomlčkou (např. z "2026-000005" vezmeme "5")
+       const parts = last.number.split('-');
+       if (parts.length === 2) {
+         const seq = parseInt(parts[1]);
+         if (!isNaN(seq)) {
+           nextSequence = seq + 1;
+         }
+       }
+    }
+
+    // Vrátíme řetězec, např. "2026-000001"
+    // (Webhook očekává string, ne objekt)
+    return `${year}-${String(nextSequence).padStart(6, "0")}`;
 
   } catch (err) {
-    // Pokud tvá databáze nemá sloupce 'year' a 'sequence', spadlo by to.
-    // Zde je bezpečný fallback, který funguje vždy (najde poslední číslo jako string)
-    console.warn("⚠️ Standardní generování selhalo (asi chybí sloupce year/sequence), používám fallback.", err.message);
-    
-    const lastSimple = await db.invoice.findFirst({
-        where: { number: { startsWith: `${year}` } },
-        orderBy: { createdAt: 'desc' }
-    });
-
-    if (!lastSimple) return `${year}-000001`;
-    
-    // Zkusíme vytáhnout číslo z konce stringu
-    const match = lastSimple.number.match(/(\d+)$/);
-    if (match) {
-        const next = parseInt(match[1]) + 1;
-        return `${year}-${String(next).padStart(6, "0")}`;
-    }
-    
+    console.error("Chyba generování čísla faktury:", err);
+    // Fallback pro jistotu, aby webhook nespadl
     return `${year}-${Math.floor(100000 + Math.random() * 900000)}`;
   }
 }
