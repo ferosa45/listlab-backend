@@ -17,47 +17,62 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // console.log("➡️ Stripe event:", event.type);
-
   try {
-    // ------------------------------------------------------
-    // 1️⃣ FAKTURA ZAPLACENA (Vytvoření faktury v DB)
-    // ------------------------------------------------------
+    // ======================================================
+    // 1️⃣ FAKTURA ZAPLACENA (invoice.payment_succeeded)
+    // ======================================================
+    // Zde se vytváří záznam do databáze
     if (event.type === "invoice.payment_succeeded") {
       const invoice = event.data.object;
       
-      // Získáme subscription pro metadata
-      const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
-      const { ownerType, ownerId } = subscription.metadata;
+      // Faktura za 0 Kč (např. trial) se často neukládá, ale pokud chceš všechny:
+      // if (invoice.amount_paid === 0) return res.json({ received: true });
 
-      const invoiceNumber = await generateInvoiceNumber(); 
+      // Musíme zjistit, komu faktura patří. To je uloženo v předplatném.
+      // Pokud je to jednorázová platba, metadata mohou být přímo v invoice, 
+      // ale u předplatného jsou v subscription objektu.
+      let ownerType, ownerId;
 
-      const invoiceData = {
-        stripeInvoiceId: invoice.id,
-        stripeCustomerId: invoice.customer,
-        amountPaid: invoice.amount_paid,
-        currency: invoice.currency,
-        status: "PAID",
-        invoicePdfUrl: invoice.hosted_invoice_url,
-        number: invoiceNumber,
-        issuedAt: new Date(),
-      };
+      if (invoice.subscription) {
+          const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+          ownerType = subscription.metadata.ownerType;
+          ownerId = subscription.metadata.ownerId;
+      } else {
+          // Fallback pro případné jednorázové platby
+          ownerType = invoice.metadata?.ownerType;
+          ownerId = invoice.metadata?.ownerId;
+      }
 
-      if (ownerType === "SCHOOL") {
+      if (ownerType === "SCHOOL" && ownerId) {
+         // Vygenerujeme naše interní číslo faktury (např. 2026-00001)
+         const newInvoiceNumber = await generateInvoiceNumber(); 
+
+         // Vytvoření záznamu v DB
          await prisma.invoice.create({
             data: {
-                ...invoiceData,
-                school: { connect: { id: ownerId } } // Napojení na školu
+                number: newInvoiceNumber,
+                stripeInvoiceId: invoice.id,
+                stripeCustomerId: invoice.customer,
+                amountPaid: invoice.amount_paid, // částka v haléřích/centech
+                currency: invoice.currency,
+                status: "PAID",
+                // Stripe generuje PDF fakturu automaticky, uložíme odkaz
+                invoicePdfUrl: invoice.hosted_invoice_url || invoice.invoice_pdf,
+                issuedAt: new Date(),
+                // Propojení se školou
+                school: { connect: { id: ownerId } }
             }
          });
-         console.log(`🧾 Faktura vytvořena pro ŠKOLU: ${ownerId}`);
-      } 
-      // ... (případně user logic)
+         console.log(`🧾 Faktura ${newInvoiceNumber} uložena pro ŠKOLU: ${ownerId}`);
+      } else {
+          console.warn("⚠️ Faktura zaplacena, ale chybí metadata ownerType/ownerId.");
+      }
     }
 
-    // ------------------------------------------------------
-    // 2️⃣ ZMĚNA PŘEDPLATNÉHO (Aktivace/Deaktivace)
-    // ------------------------------------------------------
+    // ======================================================
+    // 2️⃣ ZMĚNA / VYTVOŘENÍ PŘEDPLATNÉHO
+    // ======================================================
+    // Toto už ti funguje (aktualizuje plán školy)
     if (
       event.type === "customer.subscription.created" ||
       event.type === "customer.subscription.updated"
@@ -65,41 +80,35 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       const sub = event.data.object;
       const { ownerType, ownerId, planCode } = sub.metadata;
 
-      // Pokud chybí metadata, nemůžeme nic dělat
-      if (!ownerType || !ownerId) {
-          console.warn("⚠️ Subscription chybí metadata. Ignoruji.");
-          return res.json({ received: true });
-      }
-
-      const status = sub.status; // active, past_due, canceled...
-      const currentPeriodEnd = new Date(sub.current_period_end * 1000);
-
-      // 🔥 LOGIKA PRO LICENCE:
-      // Pokud je status 'active' a je to TEAM plán, dáme 10 licencí. Jinak 0 (Free).
-      let newSeatLimit = 0;
-      if (status === 'active' || status === 'trialing') {
-          // Zde si můžeš nastavit logiku, např. TEAM = 10, PRO = 100...
-          newSeatLimit = 10; 
-      }
-
-      if (ownerType === "SCHOOL") {
-        await prisma.school.update({
-          where: { id: ownerId },
-          data: {
-            subscriptionStatus: status,
-            subscriptionPlan: planCode,
-            subscriptionUntil: currentPeriodEnd,
-            seatLimit: newSeatLimit, // 👈 TOTO AKTUALIZUJE LICENCE NA DASHBOARDU
-            stripeCustomerId: sub.customer, 
+      if (ownerType === "SCHOOL" && ownerId) {
+          const status = sub.status; // active, past_due, etc.
+          const currentPeriodEnd = new Date(sub.current_period_end * 1000);
+          
+          // Logika licencí: TEAM = 10, jinak 0
+          let newSeatLimit = 0;
+          if (status === 'active' || status === 'trialing') {
+              if (planCode && planCode.includes("TEAM")) {
+                  newSeatLimit = 10; 
+              }
           }
-        });
-        console.log(`✅ Škola ${ownerId} aktualizována: ${planCode}, Status: ${status}, Licence: ${newSeatLimit}`);
+
+          await prisma.school.update({
+            where: { id: ownerId },
+            data: {
+              subscriptionStatus: status,
+              subscriptionPlan: planCode,
+              subscriptionUntil: currentPeriodEnd,
+              seatLimit: newSeatLimit,
+              stripeCustomerId: sub.customer, 
+            }
+          });
+          console.log(`✅ Škola ${ownerId} aktualizována: ${planCode} (Licence: ${newSeatLimit})`);
       }
     }
 
-    // ------------------------------------------------------
+    // ======================================================
     // 3️⃣ SMAZÁNÍ PŘEDPLATNÉHO
-    // ------------------------------------------------------
+    // ======================================================
     if (event.type === "customer.subscription.deleted") {
         const sub = event.data.object;
         const { ownerType, ownerId } = sub.metadata;
@@ -110,7 +119,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
                 data: {
                     subscriptionStatus: "canceled",
                     subscriptionPlan: null,
-                    seatLimit: 0 // Reset na Free
+                    seatLimit: 0 
                 }
             });
             console.log(`❌ Škola ${ownerId} - předplatné zrušeno.`);
@@ -119,7 +128,9 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
 
   } catch (err) {
     console.error("❌ Webhook processing error:", err);
-    return res.status(400).send(`Error: ${err.message}`);
+    // Vracíme 200 i při chybě logiky, aby Stripe nezkoušel posílat request znovu donekonečna
+    // (pokud je to chyba v našem kódu a ne dočasný výpadek DB)
+    return res.status(200).send(`Error processing webhook: ${err.message}`);
   }
 
   res.json({ received: true });
