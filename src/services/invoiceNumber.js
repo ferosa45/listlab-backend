@@ -1,8 +1,7 @@
-// src/services/invoiceNumber.js
 import { prisma } from "../lib/prisma.js"; // 👈 TENTO IMPORT TAM CHYBĚL
 
 export async function generateInvoiceNumber(tx) {
-  // Pokud funkce nedostane transakci (tx) z webhooku, použije hlavní prisma klient
+  // Pokud funkce nedostane transakci (tx), použije hlavní prisma klient
   const db = tx || prisma; 
   
   const year = new Date().getFullYear();
@@ -11,10 +10,10 @@ export async function generateInvoiceNumber(tx) {
     // Najdeme poslední fakturu v tomto roce
     const last = await db.invoice.findFirst({
       where: { 
-        // Hledáme faktury, jejichž číslo začíná letošním rokem (např. "2026-")
+        // Hledáme faktury, jejichž číslo začíná letošním rokem
         number: { startsWith: `${year}-` }
       },
-      orderBy: { createdAt: "desc" }, // Seřadíme od nejnovější
+      orderBy: { createdAt: "desc" },
     });
 
     let nextSequence = 1;
@@ -31,12 +30,11 @@ export async function generateInvoiceNumber(tx) {
     }
 
     // Vrátíme řetězec, např. "2026-000001"
-    // (Webhook očekává string, ne objekt)
     return `${year}-${String(nextSequence).padStart(6, "0")}`;
 
   } catch (err) {
     console.error("Chyba generování čísla faktury:", err);
-    // Fallback pro jistotu, aby webhook nespadl
+    // Fallback náhodné číslo, aby webhook nespadl
     return `${year}-${Math.floor(100000 + Math.random() * 900000)}`;
   }
 }
