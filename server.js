@@ -1772,6 +1772,75 @@ app.get("/api/schools/:id", authMiddleware, async (req, res) => {
   }
 });
 
+// ------------------------------------------------------------------
+// 🏫 GET /api/schools/:id - Detail školy, učitelé a STATISTIKY
+// ------------------------------------------------------------------
+app.get("/api/schools/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    // 1. Bezpečnost
+    if (user.schoolId !== id && user.role !== "SUPERADMIN") {
+      return res.status(403).json({ ok: false, error: "Bez oprávnění" });
+    }
+
+    // 2. Načtení školy a učitelů
+    const school = await prisma.school.findUnique({
+      where: { id },
+      include: {
+        users: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    });
+
+    if (!school) return res.status(404).json({ ok: false, error: "Škola nenalezena" });
+
+    // 3. 🔥 VÝPOČET STATISTIK (AGREGACE)
+    // Spočítáme logy všech uživatelů, kteří patří do této školy
+    const totalWorksheets = await prisma.worksheetLog.count({
+      where: {
+        user: {
+          schoolId: id
+        }
+      }
+    });
+
+    // Spočítáme počet učitelů (bez adminů, pokud chceš, nebo všechny)
+    const teachersCount = school.users.length;
+    
+    // Zbývající licence
+    const seatLimit = school.seatLimit || 0; // Pokud null, tak 0 (nebo Infinity)
+    const seatsUsed = teachersCount;
+    const seatsAvailable = seatLimit > 0 ? (seatLimit - seatsUsed) : "∞";
+
+    // 4. Odeslání
+    res.json({
+      ok: true,
+      school: {
+        ...school,
+        stats: {
+          totalWorksheets,  // Počet vygenerovaných listů
+          seatsUsed,        // Obsazená místa
+          seatsAvailable,   // Volná místa
+          seatLimit         // Celkový limit
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error("❌ CHYBA ŠKOLY:", err);
+    res.status(500).json({ ok: false, error: "Chyba serveru" });
+  }
+});
+
 
 
 // ---------- WORKSHEET LOGS ----------
