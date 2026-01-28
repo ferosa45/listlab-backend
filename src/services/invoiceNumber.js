@@ -24,7 +24,7 @@ export async function generateInvoiceNumber(tx) {
        }
     }
 
-    // 🔥 ZMĚNA: Vracíme objekt s oběma údaji
+    // 🔥 ZMĚNA: Vracíme objekt s oběma údajii
     return {
     number: `${year}-${String(nextSequence).padStart(6, "0")}`,
     sequence: nextSequence

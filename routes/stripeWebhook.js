@@ -37,17 +37,17 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       }
 
       if (ownerType === "SCHOOL" && ownerId) {
-         // Generování čísla faktury
-         const newInvoiceNumber = await generateInvoiceNumber(); 
+         // Destrukturalizace: očekáváme { number, sequence }
+         const { number, sequence } = await generateInvoiceNumber(); 
          
-         // 🔥 OPRAVA: Získání aktuálního roku pro DB
          const currentYear = new Date().getFullYear();
 
          // Vytvoření záznamu v DB
          await prisma.invoice.create({
             data: {
-                year: currentYear, // 👈 TOTO ZDE CHYBĚLO A ZPŮSOBOVALO CHYBU
-                number: newInvoiceNumber,
+                year: currentYear,
+                sequence: sequence,
+                number: number,
                 stripeInvoiceId: invoice.id,
                 stripeCustomerId: invoice.customer,
                 amountPaid: invoice.amount_paid,
@@ -58,7 +58,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
                 school: { connect: { id: ownerId } }
             }
          });
-         console.log(`🧾 Faktura ${newInvoiceNumber} uložena pro ŠKOLU: ${ownerId}`);
+         console.log(`🧾 Faktura ${number} (seq: ${sequence}) uložena pro ŠKOLU: ${ownerId}`);
       } else {
           console.warn("⚠️ Faktura zaplacena, ale chybí metadata ownerType/ownerId.");
       }
@@ -100,7 +100,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
     }
 
     // ======================================================
-    // 3️⃣ SMAZÁNÍ PŘEDPLATNÉHO
+    // 3️⃣ SMAZÁNÍ PŘEDPLATNÉHOO
     // ======================================================
     if (event.type === "customer.subscription.deleted") {
         const sub = event.data.object;
@@ -110,7 +110,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
             await prisma.school.update({
                 where: { id: ownerId },
                 data: {
-                    subscriptionStatus: "canceled",
+                    subscriptionStatus: "canceled", // 👈 TADY BYLA CHYBA (odstraněna lomítka)
                     subscriptionPlan: null,
                     seatLimit: 0 
                 }
