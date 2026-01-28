@@ -1841,6 +1841,69 @@ app.get("/api/schools/:id", authMiddleware, async (req, res) => {
   }
 });
 
+// ------------------------------------------------------------------
+// 💾 PUT /api/schools/:id/billing - Aktualizace fakturačních údajů
+// ------------------------------------------------------------------
+app.put("/api/schools/:id/billing", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+    const { 
+      billingName, billingStreet, billingCity, billingZip, 
+      billingCountry, billingIco, billingDic 
+    } = req.body;
+
+    // 1. Bezpečnost: Uživatel musí patřit do této školy
+    if (user.schoolId !== id && user.role !== "SUPERADMIN") {
+      return res.status(403).json({ 
+        ok: false, 
+        error: "Nemáte oprávnění měnit údaje této školy." 
+      });
+    }
+
+    // 2. Aktualizace v databázi
+    const updatedSchool = await prisma.school.update({
+      where: { id },
+      data: {
+        billingName,
+        billingStreet,
+        billingCity,
+        billingZip,
+        billingCountry,
+        billingIco,
+        billingDic
+      }
+    });
+
+    // 3. (Volitelné) Pokud už existuje zákazník ve Stripe, aktualizujeme ho taky
+    // Aby na příští faktuře byla správná adresa
+    if (updatedSchool.stripeCustomerId) {
+        try {
+            // Musíme importovat Stripe, pokud není v tomto scope dostupný
+            // (Předpokládám, že 'stripe' už máš inicializovaný nahoře v server.js)
+             await stripe.customers.update(updatedSchool.stripeCustomerId, {
+                name: billingName,
+                address: {
+                    line1: billingStreet,
+                    city: billingCity,
+                    postal_code: billingZip,
+                    country: billingCountry || 'CZ',
+                },
+                metadata: { ico: billingIco, dic: billingDic }
+            });
+        } catch (stripeErr) {
+            console.warn("⚠️ Nepodařilo se aktualizovat Stripe (nevadí, DB je OK):", stripeErr.message);
+        }
+    }
+
+    res.json({ ok: true, message: "Údaje uloženy" });
+
+  } catch (err) {
+    console.error("❌ CHYBA UKLÁDÁNÍ BILLING:", err);
+    res.status(500).json({ ok: false, error: "Nepodařilo se uložit údaje." });
+  }
+});
+
 
 
 // ---------- WORKSHEET LOGS ----------
