@@ -1,70 +1,66 @@
-// api/routes/billing.js
 import express from 'express'
 import Stripe from 'stripe'
-import { PrismaClient } from '@prisma/client'
-import jwt from 'jsonwebtoken'
+import { prisma } from '../src/lib/prisma.js'
+import { requireAuth } from '../src/middleware/authMiddleware.js'
 
 const router = express.Router()
-const prisma = new PrismaClient()
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
 /* -------------------------------------------------------
-   AUTH
--------------------------------------------------------- */
-function requireAuth(req, res, next) {
-  try {
-    const token =
-      req.cookies?.token || req.headers.authorization?.split(" ")[1]
-
-    const data = jwt.verify(token, process.env.JWT_SECRET)
-    req.user = data
-    next()
-  } catch {
-    return res.status(401).json({ error: "Unauthorized" })
-  }
-}
-
-/* -------------------------------------------------------
-   CREATE CHECKOUT SESSION
+   CREATE CHECKOUT SESSION (PRO ŠKOLY)
 -------------------------------------------------------- */
 router.post('/create-checkout-session', requireAuth, async (req, res) => {
   try {
     const { priceId, planCode, billingPeriod } = req.body
+    const user = req.user
 
-    if (!priceId || !planCode || !billingPeriod) {
-      return res.status(400).json({ error: 'Missing billing parameters' })
+    if (!priceId || !planCode) {
+      return res.status(400).json({ error: 'Chybí parametry platby.' })
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id }
+    // 1. Získáme školu uživatele
+    if (!user.schoolId) {
+        return res.status(400).json({ error: 'Uživatel nemá školu.' })
+    }
+
+    const school = await prisma.school.findUnique({
+        where: { id: user.schoolId }
     })
 
-    /* -------------------------------------------------------
-       1) Ensure Stripe Customer exists
-    -------------------------------------------------------- */
-    let customerId = user.stripeCustomerId
+    if (!school) return res.status(404).json({ error: 'Škola nenalezena.' })
 
+    /* -------------------------------------------------------
+       2) Stripe Customer Logic (PRO ŠKOLU)
+    -------------------------------------------------------- */
+    let customerId = school.stripeCustomerId
+
+    // Pokud škola ještě nemá Stripe ID, vytvoříme ho
     if (!customerId) {
       const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: { userId: user.id }
+        email: user.email, // Email admina
+        name: school.billingName || school.name, // Název školy na faktuře
+        metadata: { 
+            schoolId: school.id,
+            entityType: "SCHOOL" 
+        }
       })
-
       customerId = customer.id
 
-      await prisma.user.update({
-        where: { id: user.id },
+      // Uložíme ID zákazníka do DB školy
+      await prisma.school.update({
+        where: { id: school.id },
         data: { stripeCustomerId: customerId }
       })
     }
 
     /* -------------------------------------------------------
-       2) Create Stripe Checkout Session
+       3) Create Checkout Session
     -------------------------------------------------------- */
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
       customer: customerId,
+      tax_id_collection: { enabled: true }, // Povolit zadání DIČ
 
       line_items: [
         {
@@ -73,21 +69,16 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
         }
       ],
 
-      success_url: `${process.env.FRONTEND_ORIGIN}/billing/success`,
-      cancel_url: `${process.env.FRONTEND_ORIGIN}/billing/cancel`,
+      success_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/app/school?success=true`,
+      cancel_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/app/school?canceled=true`,
 
-      // Metadata *pro session* (nepotřebné pro webhook)
-      metadata: {
-        planCode
-      },
-
-      // ✔ Metadata přenesená do subscription → použije webhook
+      // 🔥 KLÍČOVÉ: TATO METADATA SI PŘEČTE WEBHOOK
       subscription_data: {
         metadata: {
-          ownerType: "USER",
-          ownerId: user.id,
-          planCode,
-          billingPeriod
+          ownerType: "SCHOOL",    // Říkáme webhooku: Platí škola
+          ownerId: school.id,     // ID školy
+          planCode: planCode,     // TEAM_YEARLY atd.
+          billingPeriod: billingPeriod
         }
       }
     })
@@ -95,8 +86,8 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
     return res.json({ url: session.url })
 
   } catch (err) {
-    console.error("Checkout error:", err)
-    return res.status(500).json({ error: "Checkout session failed" })
+    console.error('Billing error:', err)
+    return res.status(500).json({ error: err.message })
   }
 })
 
