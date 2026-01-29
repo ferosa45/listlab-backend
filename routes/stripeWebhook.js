@@ -112,6 +112,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
               subscriptionUntil: currentPeriodEnd,
               seatLimit: newSeatLimit,
               stripeCustomerId: sub.customer, 
+              subscriptionPlan: activePlanCode, // Použijeme tento dynamický kód
             }
           });
           console.log(`✅ Škola ${ownerId} aktualizována: ${planCode} (Licence: ${newSeatLimit})`);
