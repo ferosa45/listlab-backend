@@ -92,6 +92,14 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       const sub = event.data.object;
       const { ownerType, ownerId, planCode } = sub.metadata;
       const quantity = sub.items?.data[0]?.quantity || 1;
+      
+      // Získáme info o ceně z první položky
+      const price = sub.items.data[0].price;
+      const interval = price.recurring.interval; // "month" nebo "year"
+      
+      // Určíme správný kód plánu dynamicky (ignorujeme stará metadata, pokud se liší interval)
+      let activePlanCode = "TEAM_MONTHLY";
+      if (interval === "year") activePlanCode = "TEAM_YEARLY";
 
       if (ownerType === "SCHOOL" && ownerId) {
           const status = sub.status;
@@ -99,6 +107,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
           
           let newSeatLimit = 0;
           if (status === 'active' || status === 'trialing') {
+              // Kontrola, zda jde o týmový plán (podle metadat)
               if (planCode && planCode.includes("TEAM")) {
                   newSeatLimit = quantity; 
               }
@@ -108,14 +117,14 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
             where: { id: ownerId },
             data: {
               subscriptionStatus: status,
-              subscriptionPlan: planCode,
+              // subscriptionPlan: planCode, // ❌ TENTO ŘÁDEK JSEM SMAZAL (byl tu navíc)
               subscriptionUntil: currentPeriodEnd,
               seatLimit: newSeatLimit,
               stripeCustomerId: sub.customer, 
-              subscriptionPlan: activePlanCode, // Použijeme tento dynamický kód
+              subscriptionPlan: activePlanCode, // ✅ ZDE SE ULOŽÍ TA SPRÁVNÁ HODNOTA
             }
           });
-          console.log(`✅ Škola ${ownerId} aktualizována: ${planCode} (Licence: ${newSeatLimit})`);
+          console.log(`✅ Škola ${ownerId} aktualizována: ${activePlanCode} (Licence: ${newSeatLimit})`);
       }
     }
 
