@@ -143,5 +143,55 @@ router.post('/create-portal-session', requireAuth, async (req, res) => {
   }
 })
 
+/* -------------------------------------------------------
+   UPDATE SUBSCRIPTION QUANTITY (NAVÝŠENÍ LICENCÍ)
+   POST /api/billing/update-quantity
+-------------------------------------------------------- */
+router.post('/update-quantity', requireAuth, async (req, res) => {
+  try {
+    const { quantity } = req.body; // Nový celkový počet (např. 11)
+    const user = req.user;
+
+    if (!user.schoolId) return res.status(400).json({ error: 'Chybí škola.' });
+    if (quantity < 1) return res.status(400).json({ error: 'Množství musí být alespoň 1.' });
+
+    const school = await prisma.school.findUnique({ where: { id: user.schoolId } });
+    if (!school || !school.stripeCustomerId) {
+        return res.status(404).json({ error: 'Škola nemá aktivní Stripe účet.' });
+    }
+
+    // 1. Najdeme aktivní předplatné ve Stripe
+    const subscriptions = await stripe.subscriptions.list({
+      customer: school.stripeCustomerId,
+      status: 'active',
+      limit: 1,
+    });
+
+    if (subscriptions.data.length === 0) {
+        return res.status(400).json({ error: 'Nemáte aktivní předplatné k úpravě.' });
+    }
+
+    const subscription = subscriptions.data[0];
+    const itemId = subscription.items.data[0].id; // ID položky, kterou měníme
+
+    // 2. Aktualizujeme množství
+    // proration_behavior: 'always_invoice' znamená, že pokud doplácí, 
+    // Stripe hned vystaví a zkusí zaplatit fakturu za rozdíl.
+    await stripe.subscriptions.update(subscription.id, {
+      items: [{
+        id: itemId,
+        quantity: parseInt(quantity),
+      }],
+      proration_behavior: 'always_invoice', 
+    });
+
+    res.json({ ok: true, newQuantity: quantity });
+
+  } catch (err) {
+    console.error('Update quantity error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 export default router
