@@ -106,4 +106,42 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
   }
 })
 
+// ... (předchozí kód create-checkout-session) ...
+
+/* -------------------------------------------------------
+   CREATE PORTAL SESSION (SPRÁVA TARIFU)
+-------------------------------------------------------- */
+router.post('/create-portal-session', requireAuth, async (req, res) => {
+  try {
+    const user = req.user
+
+    // 1. Zjistíme školu
+    if (!user.schoolId) {
+        return res.status(400).json({ error: 'Uživatel nemá školu.' })
+    }
+
+    const school = await prisma.school.findUnique({
+        where: { id: user.schoolId }
+    })
+
+    if (!school || !school.stripeCustomerId) {
+        return res.status(404).json({ error: 'Škola nemá aktivní Stripe účet.' })
+    }
+
+    // 2. Vytvoříme session pro portál
+    const session = await stripe.billingPortal.sessions.create({
+      customer: school.stripeCustomerId,
+      return_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/school-admin`,
+    })
+
+    // 3. Pošleme URL zpět na frontend
+    res.json({ url: session.url })
+
+  } catch (err) {
+    console.error('Portal session error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+
 export default router
