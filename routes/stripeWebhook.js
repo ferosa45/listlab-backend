@@ -91,6 +91,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
     ) {
       const sub = event.data.object;
       const { ownerType, ownerId, planCode } = sub.metadata;
+      const quantity = sub.items?.data[0]?.quantity || 1;
 
       if (ownerType === "SCHOOL" && ownerId) {
           const status = sub.status;
@@ -99,7 +100,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
           let newSeatLimit = 0;
           if (status === 'active' || status === 'trialing') {
               if (planCode && planCode.includes("TEAM")) {
-                  newSeatLimit = 10; 
+                  newSeatLimit = quantity; 
               }
           }
 
