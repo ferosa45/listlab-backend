@@ -11,7 +11,8 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 -------------------------------------------------------- */
 router.post('/create-checkout-session', requireAuth, async (req, res) => {
   try {
-    const { priceId, planCode, billingPeriod } = req.body
+    // 👇 OPRAVA: Přidáno čtení quantity z požadavku (defaultně 1)
+    const { priceId, planCode, billingPeriod, quantity = 1 } = req.body
     const user = req.user
 
     if (!priceId || !planCode) {
@@ -36,52 +37,33 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
 
     // Vytvoření zákazníka, pokud neexistuje
     if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email, 
-        name: school.billingName || school.name, 
-        metadata: { 
-            schoolId: school.id,
-            entityType: "SCHOOL" 
-        }
-      })
-      customerId = customer.id
-
-      await prisma.school.update({
-        where: { id: school.id },
-        data: { stripeCustomerId: customerId }
-      })
-    } 
-    // Pokud už existuje, pro jistotu aktualizujeme údaje (kdyby si je uživatel změnil v adminu)
-    else {
-        try {
-            await stripe.customers.update(customerId, {
-                name: school.billingName || school.name,
-                 // Pokud bys chtěl posílat i adresu do Stripe (volitelné):
-                 /* address: school.billingStreet ? {
-                    line1: school.billingStreet,
-                    city: school.billingCity,
-                    postal_code: school.billingZip,
-                    country: school.billingCountry || 'CZ',
-                } : undefined */
-            });
-        } catch (e) {
-            console.warn("Nepodařilo se aktualizovat Stripe zákazníka, pokračuji...", e.message);
-        }
+        const customer = await stripe.customers.create({
+            email: user.email,
+            name: school.billingName || school.name, 
+            metadata: {
+                schoolId: school.id,
+                ownerType: 'SCHOOL'
+            }
+        })
+        customerId = customer.id
+        
+        await prisma.school.update({
+            where: { id: school.id },
+            data: { stripeCustomerId: customerId }
+        })
     }
 
-    // 3. Create Checkout Session
+    // 3. Vytvoření Checkout Session
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
       customer: customerId,
       
-      // ❌ SMAZÁNO: tax_id_collection: { enabled: true }, 
-      // Tímto se zbavíme té chyby. Stripe už nebude řešit daně, jen platbu.
-
       line_items: [
         {
           price: priceId,
-          quantity: 1
+          // 👇 OPRAVA: Zde použijeme dynamické množství (např. 10)
+          quantity: quantity 
         }
       ],
 
@@ -101,12 +83,10 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
     return res.json({ url: session.url })
 
   } catch (err) {
-    console.error('Billing error:', err)
+    console.error('Stripe Checkout Error:', err)
     return res.status(500).json({ error: err.message })
   }
 })
-
-// ... (předchozí kód create-checkout-session) ...
 
 /* -------------------------------------------------------
    CREATE PORTAL SESSION (SPRÁVA TARIFU)
@@ -115,7 +95,6 @@ router.post('/create-portal-session', requireAuth, async (req, res) => {
   try {
     const user = req.user
 
-    // 1. Zjistíme školu
     if (!user.schoolId) {
         return res.status(400).json({ error: 'Uživatel nemá školu.' })
     }
@@ -128,13 +107,11 @@ router.post('/create-portal-session', requireAuth, async (req, res) => {
         return res.status(404).json({ error: 'Škola nemá aktivní Stripe účet.' })
     }
 
-    // 2. Vytvoříme session pro portál
     const session = await stripe.billingPortal.sessions.create({
       customer: school.stripeCustomerId,
       return_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/school-admin`,
     })
 
-    // 3. Pošleme URL zpět na frontend
     res.json({ url: session.url })
 
   } catch (err) {
@@ -149,7 +126,7 @@ router.post('/create-portal-session', requireAuth, async (req, res) => {
 -------------------------------------------------------- */
 router.post('/update-quantity', requireAuth, async (req, res) => {
   try {
-    const { quantity } = req.body; // Nový celkový počet (např. 11)
+    const { quantity } = req.body; 
     const user = req.user;
 
     if (!user.schoolId) return res.status(400).json({ error: 'Chybí škola.' });
@@ -172,11 +149,9 @@ router.post('/update-quantity', requireAuth, async (req, res) => {
     }
 
     const subscription = subscriptions.data[0];
-    const itemId = subscription.items.data[0].id; // ID položky, kterou měníme
+    const itemId = subscription.items.data[0].id; 
 
     // 2. Aktualizujeme množství
-    // proration_behavior: 'always_invoice' znamená, že pokud doplácí, 
-    // Stripe hned vystaví a zkusí zaplatit fakturu za rozdíl.
     await stripe.subscriptions.update(subscription.id, {
       items: [{
         id: itemId,
@@ -192,6 +167,5 @@ router.post('/update-quantity', requireAuth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 export default router
