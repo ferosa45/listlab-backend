@@ -36,7 +36,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       }
 
       if (ownerType === "SCHOOL" && ownerId) {
-         // 1. NEJDŘÍVE NAČTEME DATA O ŠKOLE (adresu atd.)
+         // 1. NEJDŘÍVE NAČTEME DATA O ŠKOLE
          const schoolData = await prisma.school.findUnique({
             where: { id: ownerId }
          });
@@ -50,7 +50,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
          const { number, sequence } = await generateInvoiceNumber(); 
          const currentYear = new Date().getFullYear();
 
-         // 3. Vytvoříme fakturu se všemi údaji (snapshot adresy)
+         // 3. Vytvoříme fakturu se všemi údaji
          await prisma.invoice.create({
             data: {
                 year: currentYear,
@@ -61,10 +61,11 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
                 amountPaid: invoice.amount_paid,
                 currency: invoice.currency,
                 status: "PAID",
+                // ❌ ODSTRANĚNO: invoicePdfUrl (v DB tento sloupec nemáš)
                 issuedAt: new Date(),
                 
-                // 🔥 DOPLNĚNÍ FAKTURAČNÍCH ÚDAJŮ (Povinné pole v DB)
-                billingName: schoolData.billingName || schoolData.name, // Pokud chybí billingName, použijeme název školy
+                // Fakturační údaje (snapshot)
+                billingName: schoolData.billingName || schoolData.name, 
                 billingStreet: schoolData.billingStreet || "",
                 billingCity: schoolData.billingCity || "",
                 billingZip: schoolData.billingZip || "",
