@@ -61,7 +61,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
                 amountPaid: invoice.amount_paid,
                 currency: invoice.currency,
                 status: "PAID",
-                // ❌ ODSTRANĚNO: invoicePdfUrl (v DB tento sloupec nemáš)
+                // invoicePdfUrl odstraněno
                 issuedAt: new Date(),
                 
                 // Fakturační údaje (snapshot)
@@ -71,7 +71,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
                 billingZip: schoolData.billingZip || "",
                 billingCountry: schoolData.billingCountry || "CZ",
                 billingIco: schoolData.billingIco || "",
-                billingDic: schoolData.billingDic || "",
+                // ❌ ODSTRANĚNO: billingDic (v DB tento sloupec není)
 
                 school: { connect: { id: ownerId } }
             }
