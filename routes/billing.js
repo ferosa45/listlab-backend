@@ -121,8 +121,7 @@ router.post('/create-portal-session', requireAuth, async (req, res) => {
 })
 
 /* -------------------------------------------------------
-   UPDATE SUBSCRIPTION QUANTITY (NAVÝŠENÍ LICENCÍ)
-   POST /api/billing/update-quantity
+   UPDATE SUBSCRIPTION QUANTITY (ZMĚNA POČTU LICENCÍ +/-)
 -------------------------------------------------------- */
 router.post('/update-quantity', requireAuth, async (req, res) => {
   try {
@@ -132,12 +131,24 @@ router.post('/update-quantity', requireAuth, async (req, res) => {
     if (!user.schoolId) return res.status(400).json({ error: 'Chybí škola.' });
     if (quantity < 1) return res.status(400).json({ error: 'Množství musí být alespoň 1.' });
 
+    // 1. Získáme aktuální počet učitelů ve škole
+    const activeUsersCount = await prisma.user.count({
+        where: { schoolId: user.schoolId }
+    });
+
+    // ⛔️ VALIDACE: Nemůžeme snížit pod počet aktivních členů
+    if (quantity < activeUsersCount) {
+        return res.status(400).json({ 
+            error: `Nelze snížit licence na ${quantity}, protože ve škole je momentálně ${activeUsersCount} učitelů. Nejdříve někoho odeberte.` 
+        });
+    }
+
     const school = await prisma.school.findUnique({ where: { id: user.schoolId } });
     if (!school || !school.stripeCustomerId) {
         return res.status(404).json({ error: 'Škola nemá aktivní Stripe účet.' });
     }
 
-    // 1. Najdeme aktivní předplatné ve Stripe
+    // 2. Stripe Logika
     const subscriptions = await stripe.subscriptions.list({
       customer: school.stripeCustomerId,
       status: 'active',
@@ -151,7 +162,7 @@ router.post('/update-quantity', requireAuth, async (req, res) => {
     const subscription = subscriptions.data[0];
     const itemId = subscription.items.data[0].id; 
 
-    // 2. Aktualizujeme množství
+    // 3. Aktualizace ve Stripe
     await stripe.subscriptions.update(subscription.id, {
       items: [{
         id: itemId,
