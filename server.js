@@ -1905,6 +1905,42 @@ app.put("/api/schools/:id/billing", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------
+// ODEBRAT UŽIVATELE ZE ŠKOLY
+// ---------------------------------------------------------
+app.delete('/api/schools/:schoolId/users/:userId', authMiddleware, async (req, res) => {
+  try {
+    const { schoolId, userId } = req.params;
+    const requester = req.user; // Ten, kdo klikl na tlačítko (admin)
+
+    // 1. BEZPEČNOST: Kontrola oprávnění (musí být ADMIN téže školy)
+    if (requester.schoolId !== schoolId || requester.role !== 'SCHOOL_ADMIN') {
+      return res.status(403).json({ error: "Nemáte oprávnění spravovat uživatele této školy." });
+    }
+
+    // 2. POJISTKA: Nemůžeš smazat sám sebe
+    if (requester.id === userId) {
+      return res.status(400).json({ error: "Nemůžete odebrat sami sebe." });
+    }
+
+    // 3. ODPOJENÍ UŽIVATELE
+    // Smažeme mu schoolId a vrátíme roli na běžného TEACHER
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        schoolId: null,
+        role: 'TEACHER' 
+      }
+    });
+
+    console.log(`🗑️ Uživatel ${userId} byl odebrán ze školy ${schoolId}.`);
+    res.json({ ok: true, message: "Uživatel byl úspěšně odebrán." });
+
+  } catch (err) {
+    console.error("Chyba při odebírání uživatele:", err);
+    res.status(500).json({ error: "Nepodařilo se odebrat uživatele." });
+  }
+});
 
 
 // ---------- WORKSHEET LOGS ----------
