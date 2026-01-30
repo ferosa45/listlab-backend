@@ -99,18 +99,25 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
     if (event.type === "checkout.session.completed" || event.type === "customer.subscription.updated") {
       const sessionOrSub = event.data.object;
       
-      let ownerType, ownerId, activePlanCode;
+      let ownerType, ownerId, activePlanCode, subscriptionId;
 
+      // Získání dat podle typu eventu
       if (event.type === "checkout.session.completed") {
           ownerType = sessionOrSub.metadata.ownerType;
           ownerId = sessionOrSub.metadata.ownerId;
           activePlanCode = sessionOrSub.metadata.planCode;
+          subscriptionId = sessionOrSub.subscription;
       } else {
+          // customer.subscription.updated
           ownerType = sessionOrSub.metadata.ownerType;
           ownerId = sessionOrSub.metadata.ownerId;
-          // Získání planCode z položek subscription
           activePlanCode = sessionOrSub.items?.data[0]?.plan?.metadata?.planCode || sessionOrSub.metadata?.planCode;
+          subscriptionId = sessionOrSub.id;
       }
+
+      // Načteme detaily předplatného přímo ze Stripe, abychom měli přesné datum "Until"
+      const subDetails = await stripe.subscriptions.retrieve(subscriptionId);
+      const subscriptionUntil = new Date(subDetails.current_period_end * 1000);
 
       if (ownerType === "SCHOOL") {
           const seatLimit = activePlanCode && activePlanCode.includes("TEAM") ? 20 : 1;
@@ -119,6 +126,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
             data: {
               subscriptionStatus: "active",
               subscriptionPlan: activePlanCode,
+              subscriptionUntil: subscriptionUntil, // 👈 PŘIDÁNO
               seatLimit: seatLimit,
             }
           });
@@ -130,9 +138,10 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
             data: {
               subscriptionStatus: "active",
               subscriptionPlan: activePlanCode,
+              subscriptionUntil: subscriptionUntil, // 👈 PŘIDÁNO
             }
           });
-          console.log(`✅ User ${ownerId} aktualizován: ${activePlanCode}`);
+          console.log(`✅ User ${ownerId} aktualizován: ${activePlanCode}, do: ${subscriptionUntil}`);
       }
     }
 
