@@ -56,19 +56,15 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       };
 
       const now = new Date();
-      const lastInvoice = await prisma.invoice.findFirst({
-        where: { year: now.getFullYear() },
-        orderBy: { sequence: "desc" },
-      });
+      
+      // 🔥 OPRAVA ZDE: generateInvoiceNumber vrací objekt { number, sequence }
+      const invResult = await generateInvoiceNumber(prisma);
 
-      const nextSequence = lastInvoice ? lastInvoice.sequence + 1 : 1;
-      const invoiceNumber = generateInvoiceNumber(now.getFullYear(), nextSequence);
-
-      // --- PŘÍPRAVA DAT (Základní objekt) ---
+      // --- PŘÍPRAVA DAT PRO FAKTURU ---
       const invoiceData = {
         year: now.getFullYear(),
-        sequence: nextSequence,
-        number: invoiceNumber,
+        sequence: invResult.sequence, // 👈 vytáhneme číslo sekvence
+        number: invResult.number,     // 👈 vytáhneme string (číslo faktury)
         stripeInvoiceId,
         stripeCustomerId: customerId,
         amountPaid,
@@ -82,20 +78,19 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
         billingCountry: billingDetails.country,
       };
 
-      // --- DYNAMICKÉ PŘIPOJENÍ VAZBY ---
+      // --- LOGIKA PŘIPOJENÍ (ŠKOLA vs UŽIVATEL) ---
       if (ownerType === "SCHOOL") {
-        // Logika pro školy zůstává
         invoiceData.school = { connect: { id: ownerId } };
       } else if (ownerType === "USER") {
-        // Logika pro jednotlivce - PŘIPOJUJEME JEN UŽIVATELE
         invoiceData.user = { connect: { id: ownerId } };
+        // schoolId zůstane null, což schema.prisma díky otazníku už dovolí
       }
 
       await prisma.invoice.create({
         data: invoiceData
       });
 
-      console.log(`📄 Faktura ${invoiceNumber} uložena do DB.`);
+      console.log(`📄 Faktura ${invResult.number} uložena do DB.`);
     }
 
     // ======================================================
@@ -113,11 +108,12 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       } else {
           ownerType = sessionOrSub.metadata.ownerType;
           ownerId = sessionOrSub.metadata.ownerId;
-          activePlanCode = sessionOrSub.items.data[0].plan.metadata.planCode;
+          // Získání planCode z položek subscription
+          activePlanCode = sessionOrSub.items?.data[0]?.plan?.metadata?.planCode || sessionOrSub.metadata?.planCode;
       }
 
       if (ownerType === "SCHOOL") {
-          const seatLimit = activePlanCode.includes("TEAM") ? 20 : 1;
+          const seatLimit = activePlanCode && activePlanCode.includes("TEAM") ? 20 : 1;
           await prisma.school.update({
             where: { id: ownerId },
             data: {
