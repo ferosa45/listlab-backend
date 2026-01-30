@@ -291,7 +291,15 @@ app.get("/api/auth/me", authMiddleware, async (req, res) => {
         email: true,
         role: true,
         schoolId: true,
-        password: true, // jen pro needsPasswordSetup
+        password: true,
+        // 👇 PŘIDEJ TATO POLE, ABY SE NAČÍTALA Z DATABÁZE
+        billingName: true,
+        billingStreet: true,
+        billingCity: true,
+        billingZip: true,
+        billingCountry: true,
+        billingIco: true,
+        billingDic: true,
       },
     });
 
@@ -307,6 +315,14 @@ app.get("/api/auth/me", authMiddleware, async (req, res) => {
         role: user.role,
         schoolId: user.schoolId,
         needsPasswordSetup: !user.password,
+        // 👇 A TADY JE POŠLI NA FRONTEND
+        billingName: user.billingName,
+        billingStreet: user.billingStreet,
+        billingCity: user.billingCity,
+        billingZip: user.billingZip,
+        billingCountry: user.billingCountry,
+        billingIco: user.billingIco,
+        billingDic: user.billingDic,
       },
     });
   } catch (err) {
