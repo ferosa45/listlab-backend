@@ -98,54 +98,42 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
     // ======================================================
     if (event.type === "checkout.session.completed" || event.type === "customer.subscription.updated") {
       const sessionOrSub = event.data.object;
-      
-      let ownerType, ownerId, activePlanCode, subscriptionId;
-
-      // 1. ZÍSKÁNÍ ID PŘEDPLATNÉHO
-      subscriptionId = sessionOrSub.subscription || sessionOrSub.id;
-
-      // 2. NAČTENÍ PŘEDPLATNÉHO ZE STRIPE (nejjistější zdroj dat)
-      // Tímto krokem získáme 100% aktuální metadata i data expirace
+      const subscriptionId = sessionOrSub.subscription || sessionOrSub.id;
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
       
-      ownerType = subscription.metadata.ownerType;
-      ownerId = subscription.metadata.ownerId;
-      activePlanCode = subscription.metadata.planCode; // Metadata z subscription
-      
-      // Datum expirace (převod ze sekund na JS Date)
-      const subscriptionUntil = new Date(subscription.current_period_end * 1000);
+      const ownerType = subscription.metadata.ownerType;
+      const ownerId = subscription.metadata.ownerId;
+      const activePlanCode = subscription.metadata.planCode;
 
-      console.log(`🔍 Debug: OwnerType: ${ownerType}, OwnerId: ${ownerId}, Plan: ${activePlanCode}`);
+      // --- PŘESNÉ DATUM ZE STRIPE ---
+      const unixTime = subscription.current_period_end;
+      const validDate = unixTime ? new Date(unixTime * 1000) : null;
 
-      if (!ownerId || !ownerType) {
-          console.error("❌ Metadata stále chybí v subscription!");
-          return res.status(200).json({ received: true }); // Nechceme 500, aby Stripe nepřestal posílat
+      // PŘÍPRAVA DAT PRO UPDATE
+      const updateData = {
+        subscriptionStatus: "active",
+        subscriptionPlan: activePlanCode,
+      };
+
+      // TADY JE TA POJISTKA: Jen pokud máme validní datum, přidáme ho do updatu
+      if (validDate && !isNaN(validDate.getTime())) {
+        updateData.subscriptionUntil = validDate;
       }
 
-      // 3. ZÁPIS DO DATABÁZE
       if (ownerType === "SCHOOL") {
-          const seatLimit = activePlanCode && activePlanCode.includes("TEAM") ? 20 : 1;
+          const seatLimit = activePlanCode?.includes("TEAM") ? 20 : 1;
+          updateData.seatLimit = seatLimit;
+          
           await prisma.school.update({
             where: { id: ownerId },
-            data: {
-              subscriptionStatus: "active",
-              subscriptionPlan: activePlanCode,
-              subscriptionUntil: subscriptionUntil,
-              seatLimit: seatLimit,
-            }
+            data: updateData
           });
-          console.log(`✅ Škola ${ownerId} úspěšně aktualizována.`);
-      } 
-      else if (ownerType === "USER") {
+      } else if (ownerType === "USER") {
           await prisma.user.update({
             where: { id: ownerId },
-            data: {
-              subscriptionStatus: "active",
-              subscriptionPlan: activePlanCode,
-              subscriptionUntil: subscriptionUntil,
-            }
+            data: updateData
           });
-          console.log(`✅ User ${ownerId} úspěšně aktualizován na ${activePlanCode}.`);
+          console.log(`✅ User ${ownerId} aktualizován na ${activePlanCode}`);
       }
     }
 
