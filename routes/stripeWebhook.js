@@ -94,46 +94,66 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
     }
 
     // ======================================================
-    // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (checkout nebo update)
-    // ======================================================
-    // ======================================================
-    // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (checkout nebo update)
+    // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (checkout, update nebo invoice)
     // ======================================================
     if (event.type === "checkout.session.completed" || event.type === "customer.subscription.updated" || event.type === "invoice.payment_succeeded") {
       const dataObject = event.data.object;
       
+      // 1. Získání ID subscription a metadat
       let subscriptionId = dataObject.subscription || (event.type.includes('subscription') ? dataObject.id : null);
-      
+      let ownerType, ownerId, activePlanCode, periodEndUnix;
+
       if (subscriptionId) {
+        // Načteme si subscription přímo ze Stripe pro 100% jistotu dat
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        const ownerType = subscription.metadata.ownerType;
-        const ownerId = subscription.metadata.ownerId;
-        const activePlanCode = subscription.metadata.planCode;
+        ownerType = subscription.metadata.ownerType;
+        ownerId = subscription.metadata.ownerId;
+        activePlanCode = subscription.metadata.planCode;
+        periodEndUnix = subscription.current_period_end;
+      } else {
+        // Fallback pro checkout session bez ID subscription v rootu
+        ownerType = dataObject.metadata?.ownerType;
+        ownerId = dataObject.metadata?.ownerId;
+        activePlanCode = dataObject.metadata?.planCode;
+      }
 
-        // VŽDY bereme aktuální konec období ze subscription
-        const subscriptionUntil = new Date(subscription.current_period_end * 1000);
+      // 2. BEZPEČNÁ KONVERZE DATA
+      let subscriptionUntil = null;
+      if (periodEndUnix) {
+          const date = new Date(periodEndUnix * 1000);
+          // Kontrola, zda je datum validní
+          if (!isNaN(date.getTime())) {
+              subscriptionUntil = date;
+          }
+      }
 
-        const updateData = {
-          subscriptionStatus: "active",
-          subscriptionPlan: activePlanCode,
-          subscriptionUntil: subscriptionUntil // Tady už to posíláme natvrdo, protože ze subscription to přijde vždy
-        };
+      // 3. PŘÍPRAVA DAT PRO PRISMU (vložíme datum jen když je validní)
+      const updateData = {
+        subscriptionStatus: "active",
+        subscriptionPlan: activePlanCode,
+      };
 
-        if (ownerType === "SCHOOL") {
-            const seatLimit = activePlanCode?.includes("TEAM") ? 20 : 1;
-            await prisma.school.update({
-              where: { id: ownerId },
-              data: { ...updateData, seatLimit }
-            });
-            console.log(`✅ Škola ${ownerId} aktualizována do: ${subscriptionUntil}`);
-        } 
-        else if (ownerType === "USER") {
-            await prisma.user.update({
-              where: { id: ownerId },
-              data: updateData
-            });
-            console.log(`✅ User ${ownerId} aktualizován do: ${subscriptionUntil}`);
-        }
+      if (subscriptionUntil) {
+          updateData.subscriptionUntil = subscriptionUntil;
+      }
+
+      // 4. ZÁPIS DO DB
+      if (ownerId && ownerType) {
+          if (ownerType === "SCHOOL") {
+              const seatLimit = activePlanCode?.includes("TEAM") ? 20 : 1;
+              await prisma.school.update({
+                where: { id: ownerId },
+                data: { ...updateData, seatLimit }
+              });
+              console.log(`✅ Škola ${ownerId} aktualizována.`);
+          } 
+          else if (ownerType === "USER") {
+              await prisma.user.update({
+                where: { id: ownerId },
+                data: updateData
+              });
+              console.log(`✅ User ${ownerId} aktualizován na ${activePlanCode}.`);
+          }
       }
     }
 
