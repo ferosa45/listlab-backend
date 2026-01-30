@@ -1,33 +1,33 @@
-// src/middleware/usageLimits.js
 import { getOrCreateUsageRecord } from "../services/usageService.js";
 
-//
-// WORKSHEET LIMIT – FREE = max 3 měsíčně
-//
+// ==================================================================
+// 📄 WORKSHEET LIMIT (Ukládání/Stahování)
+// Limit: 5 měsíčně
+// ==================================================================
 export async function checkWorksheetLimit(req, res, next) {
   const license = req.license;
 
   if (!license) {
-    console.error("❌ licenseContext missing in checkWorksheetLimit");
     return res.status(500).json({ ok: false, error: "License missing" });
   }
 
-  // PRO / SCHOOL = unlimited
+  // Pokud je placený, pouštíme dál
   if (license.planCode !== "FREE") return next();
 
-  const ownerType = license.ownerType;  // "user" nebo "school"
+  const ownerType = license.ownerType;
   const ownerId = license.ownerId;
 
+  // Načte měsíční záznam
   const usage = await getOrCreateUsageRecord(ownerType, ownerId);
-
   const used = usage?.worksheetsCount ?? 0;
-  const allowed = 30; // FREE plan
+  
+  const allowed = 5; 
 
   if (used >= allowed) {
     return res.status(429).json({
       ok: false,
-      error: "WORKSHEET_LIMIT_REACHED",
-      message: "Vyčerpali jste měsíční limit 3 pracovních listů.",
+      error: "LIMIT_REACHED",
+      message: `Vyčerpali jste měsíční limit ${allowed} pracovních listů. Limit se obnoví 1. dne v měsíci.`,
       used,
       allowed,
     });
@@ -36,46 +36,38 @@ export async function checkWorksheetLimit(req, res, next) {
   next();
 }
 
-//
-// AI LIMIT – FREE = max 1 denně
-//
+// ==================================================================
+// 🧠 AI LIMIT (Generování)
+// Limit: 5 měsíčně
+// ==================================================================
 export async function checkAiLimit(req, res, next) {
   const license = req.license;
 
   if (!license) {
-    console.error("❌ licenseContext missing in checkAiLimit");
     return res.status(500).json({ ok: false, error: "License missing" });
   }
 
-  // PRO / SCHOOL = unlimited
   if (license.planCode !== "FREE") return next();
 
   const ownerType = license.ownerType;
   const ownerId = license.ownerId;
 
+  // Načte měsíční záznam
   const usage = await getOrCreateUsageRecord(ownerType, ownerId);
+  
+  // Zde je celkový počet generování za tento měsíc
+  const usedMonth = usage?.aiGenerations ?? 0;
+  
+  const allowedMonth = 5;
 
-  const usedToday = usage?.aiGenerations ?? 0;
-  const allowedPerDay = 10;
-
-  // Normalizace datumu
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const lastUpdate = usage.updatedAt ? new Date(usage.updatedAt) : new Date(0);
-  lastUpdate.setHours(0, 0, 0, 0);
-
-  const isSameDay = lastUpdate.getTime() === today.getTime();
-
-  // Pokud už AI generace dnes proběhla
-  if (isSameDay && usedToday >= allowedPerDay) {
-    return res.status(429).json({
-      ok: false,
-      error: "AI_LIMIT_REACHED",
-      message: "Dnes jste již vyčerpali limit 1 AI generace.",
-      used: allowedPerDay,
-      allowed: allowedPerDay,
-    });
+  if (usedMonth >= allowedMonth) {
+     return res.status(429).json({
+       ok: false, 
+       error: "LIMIT_REACHED",
+       message: `Vyčerpali jste měsíční limit ${allowedMonth} AI generování. Přejděte na PRO pro neomezený přístup.`,
+       used: usedMonth,
+       allowed: allowedMonth
+     });
   }
 
   next();
