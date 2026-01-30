@@ -51,6 +51,7 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 const NODE_ENV = process.env.NODE_ENV || "development";
 
+
 // ---------- GLOBAL MIDDLEWAREE ----------
 // server.js
 
