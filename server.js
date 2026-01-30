@@ -400,6 +400,7 @@ app.get("/api/debug/sub", authMiddleware, licenseContext, (req, res) => {
 });
 
 // ---------- LICENSE ----------
+// ---------- LICENSE ----------
 app.get("/api/me/license", authMiddleware, async (req, res) => {
   try {
     const user = req.user;
@@ -407,6 +408,8 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
     // 1) Zjistíme aktivní subscription
     const sub = await getActiveSubscriptionForUserOrSchool(user);
     const planCode = sub?.planCode ?? "FREE";
+    
+    // Načteme nároky, ale pro FREE je přepíšeme níže
     const entitlements = ENTITLEMENTS[planCode] ?? ENTITLEMENTS.FREE;
 
     // 2) Určení vlastníka (USER/SCHOOL)
@@ -428,33 +431,22 @@ app.get("/api/me/license", authMiddleware, async (req, res) => {
     let worksheetsRemaining = null;
 
     // ------------------------------------------------------
-    //      FREE PLAN
+    //      FREE PLAN (Změněná logika: Limit 5 měsíčně)
     // ------------------------------------------------------
     if (planCode === "FREE") {
-      const AI_LIMIT = entitlements.maxAiGenerationsPerDay;      // 10
-      const WS_LIMIT = entitlements.maxWorksheetsPerMonth;        // 30
+      const LIMIT = 5; // 👈 ZDE JE TVÝCH 5 POKUSŮ
 
       if (usage) {
-        // denní limit AI
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Už neřešíme "dnes", bereme celkové číslo za měsíc
+        // usage.aiGenerations se nuluje jen na začátku měsíce (v usageService logic)
+        aiRemaining = Math.max(LIMIT - usage.aiGenerations, 0);
 
-        const updated = new Date(usage.updatedAt);
-        updated.setHours(0, 0, 0, 0);
-
-        const usedToday =
-          today.getTime() === updated.getTime()
-            ? usage.aiGenerations
-            : 0;
-
-        aiRemaining = Math.max(AI_LIMIT - usedToday, 0);
-
-        // měsíční limit worksheets
-        worksheetsRemaining = Math.max(WS_LIMIT - usage.worksheetsCount, 0);
+        // To samé pro pracovní listy
+        worksheetsRemaining = Math.max(LIMIT - usage.worksheetsCount, 0);
       } else {
-        // žádný usage záznam → full limity
-        aiRemaining = AI_LIMIT;
-        worksheetsRemaining = WS_LIMIT;
+        // Žádný záznam tento měsíc = plný limit
+        aiRemaining = LIMIT;
+        worksheetsRemaining = LIMIT;
       }
     }
 
