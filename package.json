@@ -4,9 +4,7 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-  "postinstall": "prisma generate"
+    "start": "node server.js"
   },
   "dependencies": {
     "@prisma/client": "^5.15.1",
