@@ -7,11 +7,10 @@ const router = express.Router()
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 
 /* -------------------------------------------------------
-   CREATE CHECKOUT SESSION (PRO ŠKOLY)
+   CREATE CHECKOUT SESSION (UNIVERZÁLNÍ PRO ŠKOLY I USERY)
 -------------------------------------------------------- */
 router.post('/create-checkout-session', requireAuth, async (req, res) => {
   try {
-    // 👇 OPRAVA: Přidáno čtení quantity z požadavku (defaultně 1)
     const { priceId, planCode, billingPeriod, quantity = 1 } = req.body
     const user = req.user
 
@@ -19,41 +18,81 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Chybí parametry platby.' })
     }
 
-    // 1. Získáme školu
-    if (!user.schoolId) {
-        return res.status(400).json({ error: 'Uživatel není přiřazen k žádné škole.' })
-    }
+    // 🕵️‍♂️ ROZHODOVACÍ LOGIKA: Je to nákup pro ŠKOLU, nebo pro OSOBU?
+    // Považujeme to za školní nákup, pokud:
+    // 1. Uživatel je přiřazen ke škole (má schoolId)
+    // 2. Uživatel je ADMINEM této školy
+    // 3. Plán obsahuje slovo "TEAM" (pojistka, aby si admin mohl koupit i PRO pro sebe, pokud bychom to v budoucnu chtěli oddělit)
+    const isSchoolPurchase = user.schoolId && user.role === 'SCHOOL_ADMIN' && planCode.includes('TEAM');
 
-    const school = await prisma.school.findUnique({
-        where: { id: user.schoolId }
-    })
+    let customerId;
+    let metadata = {};
+    let finalQuantity = 1;
 
-    if (!school) {
-        return res.status(404).json({ error: 'Škola nenalezena.' })
-    }
+    if (isSchoolPurchase) {
+        // ==========================
+        // 🏫 VĚTEV PRO ŠKOLU
+        // ==========================
+        const school = await prisma.school.findUnique({ where: { id: user.schoolId } })
+        if (!school) return res.status(404).json({ error: 'Škola nenalezena.' })
 
-    // 2. Stripe Customer Logic
-    let customerId = school.stripeCustomerId
+        customerId = school.stripeCustomerId
 
-    // Vytvoření zákazníka, pokud neexistuje
-    if (!customerId) {
-        const customer = await stripe.customers.create({
-            email: user.email,
-            name: school.billingName || school.name, 
-            metadata: {
-                schoolId: school.id,
-                ownerType: 'SCHOOL'
-            }
-        })
-        customerId = customer.id
+        // Vytvoření zákazníka (Škola), pokud neexistuje
+        if (!customerId) {
+            const customer = await stripe.customers.create({
+                email: user.email,
+                name: school.billingName || school.name,
+                metadata: { schoolId: school.id, ownerType: 'SCHOOL' }
+            })
+            customerId = customer.id
+            await prisma.school.update({
+                where: { id: school.id },
+                data: { stripeCustomerId: customerId }
+            })
+        }
+
+        metadata = {
+            ownerType: "SCHOOL",
+            ownerId: school.id,
+            planCode: planCode,
+            billingPeriod: billingPeriod
+        };
+        finalQuantity = quantity; // Škola může mít více licencí
+
+    } else {
+        // ==========================
+        // 👤 VĚTEV PRO JEDNOTLIVCE
+        // ==========================
         
-        await prisma.school.update({
-            where: { id: school.id },
-            data: { stripeCustomerId: customerId }
-        })
+        // Musíme načíst aktuální data uživatele z DB, abychom měli jistotu, že máme stripeCustomerId
+        const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+        customerId = dbUser.stripeCustomerId;
+
+        // Vytvoření zákazníka (User), pokud neexistuje
+        if (!customerId) {
+            const customer = await stripe.customers.create({
+                email: user.email,
+                name: user.email, // U jednotlivce stačí email
+                metadata: { userId: user.id, ownerType: 'USER' }
+            })
+            customerId = customer.id
+            await prisma.user.update({
+                where: { id: user.id },
+                data: { stripeCustomerId: customerId }
+            })
+        }
+
+        metadata = {
+            ownerType: "USER",
+            ownerId: user.id,
+            planCode: planCode,
+            billingPeriod: billingPeriod
+        };
+        finalQuantity = 1; // Jednotlivec má vždy 1 licenci
     }
 
-    // 3. Vytvoření Checkout Session
+    // 3. Vytvoření Checkout Session (Společné)
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
@@ -62,21 +101,16 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
       line_items: [
         {
           price: priceId,
-          // 👇 OPRAVA: Zde použijeme dynamické množství (např. 10)
-          quantity: quantity 
+          quantity: finalQuantity 
         }
       ],
 
-      success_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/school-admin?success=true`,
-      cancel_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/school-admin?canceled=true`,
+      // Přesměrování - pokud je to školní nákup, vracíme se do adminu, jinak do profilu
+      success_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}${isSchoolPurchase ? '/school-admin' : '/user-admin'}?success=true`,
+      cancel_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}${isSchoolPurchase ? '/school-admin' : '/user-admin'}?canceled=true`,
 
       subscription_data: {
-        metadata: {
-          ownerType: "SCHOOL",
-          ownerId: school.id,
-          planCode: planCode,
-          billingPeriod: billingPeriod
-        }
+        metadata: metadata
       }
     })
 
@@ -89,27 +123,40 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
 })
 
 /* -------------------------------------------------------
-   CREATE PORTAL SESSION (SPRÁVA TARIFU)
+   CREATE PORTAL SESSION (SPRÁVA TARIFU - UNIVERZÁLNÍ)
 -------------------------------------------------------- */
 router.post('/create-portal-session', requireAuth, async (req, res) => {
   try {
     const user = req.user
 
-    if (!user.schoolId) {
-        return res.status(400).json({ error: 'Uživatel nemá školu.' })
-    }
+    // Znovu rozhodovací logika - kam uživatele poslat?
+    // Pokud je School Admin, otvíráme správu školy. Pokud je učitel, správu osoby.
+    // (Zde pro jednoduchost: Máš školu a jsi admin? Spravuješ školu. Jinak sebe.)
+    const isSchoolAdmin = user.schoolId && user.role === 'SCHOOL_ADMIN';
 
-    const school = await prisma.school.findUnique({
-        where: { id: user.schoolId }
-    })
+    let customerId;
+    let returnUrl = `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/user-admin`;
 
-    if (!school || !school.stripeCustomerId) {
-        return res.status(404).json({ error: 'Škola nemá aktivní Stripe účet.' })
+    if (isSchoolAdmin) {
+        // --- ŠKOLA ---
+        const school = await prisma.school.findUnique({ where: { id: user.schoolId } });
+        if (!school || !school.stripeCustomerId) {
+            return res.status(404).json({ error: 'Tato škola nemá aktivní fakturační účet.' });
+        }
+        customerId = school.stripeCustomerId;
+        returnUrl = `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/school-admin`;
+    } else {
+        // --- JEDNOTLIVEC ---
+        const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+        if (!dbUser || !dbUser.stripeCustomerId) {
+            return res.status(404).json({ error: 'Nemáte aktivní fakturační účet. Nejdříve si zakupte tarif.' });
+        }
+        customerId = dbUser.stripeCustomerId;
     }
 
     const session = await stripe.billingPortal.sessions.create({
-      customer: school.stripeCustomerId,
-      return_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}/school-admin`,
+      customer: customerId,
+      return_url: returnUrl,
     })
 
     res.json({ url: session.url })
@@ -121,22 +168,26 @@ router.post('/create-portal-session', requireAuth, async (req, res) => {
 })
 
 /* -------------------------------------------------------
-   UPDATE SUBSCRIPTION QUANTITY (ZMĚNA POČTU LICENCÍ +/-)
+   UPDATE SUBSCRIPTION QUANTITY (POUZE PRO ŠKOLY)
+   POST /api/billing/update-quantity
 -------------------------------------------------------- */
 router.post('/update-quantity', requireAuth, async (req, res) => {
   try {
     const { quantity } = req.body; 
     const user = req.user;
 
-    if (!user.schoolId) return res.status(400).json({ error: 'Chybí škola.' });
+    // Tuto funkci mohou volat jen školy
+    if (!user.schoolId || user.role !== 'SCHOOL_ADMIN') {
+        return res.status(403).json({ error: 'Navýšení licencí je dostupné pouze pro školní týmy.' });
+    }
+
     if (quantity < 1) return res.status(400).json({ error: 'Množství musí být alespoň 1.' });
 
-    // 1. Získáme aktuální počet učitelů ve škole
+    // 1. Validace: Nemůžeme snížit pod počet aktivních členů
     const activeUsersCount = await prisma.user.count({
         where: { schoolId: user.schoolId }
     });
 
-    // ⛔️ VALIDACE: Nemůžeme snížit pod počet aktivních členů
     if (quantity < activeUsersCount) {
         return res.status(400).json({ 
             error: `Nelze snížit licence na ${quantity}, protože ve škole je momentálně ${activeUsersCount} učitelů. Nejdříve někoho odeberte.` 

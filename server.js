@@ -1942,6 +1942,22 @@ app.delete('/api/schools/:schoolId/users/:userId', authMiddleware, async (req, r
   }
 });
 
+// PUT /api/user/billing - Uložení fakturačních údajů jednotlivce
+app.put('/api/user/billing', authMiddleware, async (req, res) => {
+  try {
+    const { billingName, billingStreet, billingCity, billingZip, billingCountry, billingIco, billingDic } = req.body;
+    
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { billingName, billingStreet, billingCity, billingZip, billingCountry, billingIco, billingDic }
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Chyba ukládání user billing:", err);
+    res.status(500).json({ error: "Chyba ukládání." });
+  }
+});
 
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
