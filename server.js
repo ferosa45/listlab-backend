@@ -1973,27 +1973,28 @@ app.put('/api/user/billing', authMiddleware, async (req, res) => {
 -------------------------------------------------------- */
 app.get('/api/invoices', authMiddleware, async (req, res) => {
   try {
-    const user = req.user;
+    const user = req.user; // Data z tokenu přes authMiddleware
 
-    // Najdeme faktury, kde je user připojen JAKO JEDNOTLIVEC (relation User)
-    // NEBO kde je user ADMIN ŠKOLY a faktura patří ŠKOLE.
-    
     let whereCondition = {};
 
-    if (user.schoolId && user.role === 'SCHOOL_ADMIN') {
-        // Pokud je admin školy, vidí faktury školy
+    // Oprava logiky:
+    if (user.role === 'SCHOOL_ADMIN' && user.schoolId) {
+        // Pokud je to admin školy, chceme faktury dané školy
         whereCondition = { schoolId: user.schoolId };
     } else {
-        // Jinak vidí své soukromé faktury
+        // Pro všechny ostatní (Učitelé jednotlivci, SuperAdmini) 
+        // chceme faktury vázané na jejich osobní userId
         whereCondition = { userId: user.id };
     }
 
     const invoices = await prisma.invoice.findMany({
       where: whereCondition,
       orderBy: { issuedAt: 'desc' },
-      take: 50 // Max 50 posledních faktur
+      take: 50
     });
 
+    // VŽDY vracíme ok: true, i když je pole prázdné (invoices: [])
+    // Tím zabráníme chybám 403/500 na frontendu
     res.json({ ok: true, invoices });
 
   } catch (err) {
