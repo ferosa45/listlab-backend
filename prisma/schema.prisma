@@ -18,6 +18,14 @@ model User {
   subscriptionStatus   String? // active, trialing, past_due, canceled...
   subscriptionPlan     String? // basic_monthly, basic_yearly, team
   subscriptionUntil    DateTime?
+  // 👇 PŘIDEJ TOTO (Fakturační údaje jednotlivce)
+  billingName          String?
+  billingStreet        String?
+  billingCity          String?
+  billingZip           String?
+  billingCountry       String?        @default("CZ")
+  billingIco           String?
+  billingDic           String?
   school               School?        @relation(fields: [schoolId], references: [id])
   passwordSetupToken   String?        @unique
   passwordSetupExpires DateTime?
