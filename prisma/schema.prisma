@@ -132,8 +132,8 @@ model Invoice {
   year     Int
   sequence Int
 
-  schoolId String
-  school   School @relation(fields: [schoolId], references: [id])
+  schoolId String? // 👈 PŘIDEJ OTAZNÍK (aby to mohlo být null)
+  school   School? @relation(fields: [schoolId], references: [id])
 
   amountPaid Int
   currency   String

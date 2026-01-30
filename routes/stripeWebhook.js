@@ -64,7 +64,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       const nextSequence = lastInvoice ? lastInvoice.sequence + 1 : 1;
       const invoiceNumber = generateInvoiceNumber(now.getFullYear(), nextSequence);
 
-      // --- PŘÍPRAVA DAT PRO FAKTURU ---
+      // --- PŘÍPRAVA DAT (Základní objekt) ---
       const invoiceData = {
         year: now.getFullYear(),
         sequence: nextSequence,
@@ -82,13 +82,13 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
         billingCountry: billingDetails.country,
       };
 
-      // --- LOGIKA PŘIPOJENÍ (ŠKOLA vs UŽIVATEL) ---
+      // --- DYNAMICKÉ PŘIPOJENÍ VAZBY ---
       if (ownerType === "SCHOOL") {
+        // Logika pro školy zůstává
         invoiceData.school = { connect: { id: ownerId } };
       } else if (ownerType === "USER") {
+        // Logika pro jednotlivce - PŘIPOJUJEME JEN UŽIVATELE
         invoiceData.user = { connect: { id: ownerId } };
-        // DŮLEŽITÉ: U jednotlivce nepřipojujeme školu, i kdyby tam nějaká byla, 
-        // aby to nezpůsobilo chybu, pokud by pole 'school' v DB vyžadovalo existenci školy.
       }
 
       await prisma.invoice.create({
@@ -113,7 +113,6 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       } else {
           ownerType = sessionOrSub.metadata.ownerType;
           ownerId = sessionOrSub.metadata.ownerId;
-          // U subscription.updated získáme planCode z items
           activePlanCode = sessionOrSub.items.data[0].plan.metadata.planCode;
       }
 
