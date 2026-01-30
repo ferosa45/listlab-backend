@@ -101,24 +101,28 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       
       let ownerType, ownerId, activePlanCode, subscriptionId;
 
-      // Získání dat podle typu eventu
-      if (event.type === "checkout.session.completed") {
-          ownerType = sessionOrSub.metadata.ownerType;
-          ownerId = sessionOrSub.metadata.ownerId;
-          activePlanCode = sessionOrSub.metadata.planCode;
-          subscriptionId = sessionOrSub.subscription;
-      } else {
-          // customer.subscription.updated
-          ownerType = sessionOrSub.metadata.ownerType;
-          ownerId = sessionOrSub.metadata.ownerId;
-          activePlanCode = sessionOrSub.items?.data[0]?.plan?.metadata?.planCode || sessionOrSub.metadata?.planCode;
-          subscriptionId = sessionOrSub.id;
+      // 1. ZÍSKÁNÍ ID PŘEDPLATNÉHO
+      subscriptionId = sessionOrSub.subscription || sessionOrSub.id;
+
+      // 2. NAČTENÍ PŘEDPLATNÉHO ZE STRIPE (nejjistější zdroj dat)
+      // Tímto krokem získáme 100% aktuální metadata i data expirace
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      
+      ownerType = subscription.metadata.ownerType;
+      ownerId = subscription.metadata.ownerId;
+      activePlanCode = subscription.metadata.planCode; // Metadata z subscription
+      
+      // Datum expirace (převod ze sekund na JS Date)
+      const subscriptionUntil = new Date(subscription.current_period_end * 1000);
+
+      console.log(`🔍 Debug: OwnerType: ${ownerType}, OwnerId: ${ownerId}, Plan: ${activePlanCode}`);
+
+      if (!ownerId || !ownerType) {
+          console.error("❌ Metadata stále chybí v subscription!");
+          return res.status(200).json({ received: true }); // Nechceme 500, aby Stripe nepřestal posílat
       }
 
-      // Načteme detaily předplatného přímo ze Stripe, abychom měli přesné datum "Until"
-      const subDetails = await stripe.subscriptions.retrieve(subscriptionId);
-      const subscriptionUntil = new Date(subDetails.current_period_end * 1000);
-
+      // 3. ZÁPIS DO DATABÁZE
       if (ownerType === "SCHOOL") {
           const seatLimit = activePlanCode && activePlanCode.includes("TEAM") ? 20 : 1;
           await prisma.school.update({
@@ -126,11 +130,11 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
             data: {
               subscriptionStatus: "active",
               subscriptionPlan: activePlanCode,
-              subscriptionUntil: subscriptionUntil, // 👈 PŘIDÁNO
+              subscriptionUntil: subscriptionUntil,
               seatLimit: seatLimit,
             }
           });
-          console.log(`✅ Škola ${ownerId} aktualizována: ${activePlanCode}`);
+          console.log(`✅ Škola ${ownerId} úspěšně aktualizována.`);
       } 
       else if (ownerType === "USER") {
           await prisma.user.update({
@@ -138,10 +142,10 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
             data: {
               subscriptionStatus: "active",
               subscriptionPlan: activePlanCode,
-              subscriptionUntil: subscriptionUntil, // 👈 PŘIDÁNO
+              subscriptionUntil: subscriptionUntil,
             }
           });
-          console.log(`✅ User ${ownerId} aktualizován: ${activePlanCode}, do: ${subscriptionUntil}`);
+          console.log(`✅ User ${ownerId} úspěšně aktualizován na ${activePlanCode}.`);
       }
     }
 
