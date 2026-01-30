@@ -82,7 +82,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       if (ownerType === "SCHOOL") {
         invoiceData.school = { connect: { id: ownerId } };
       } else if (ownerType === "USER") {
-        invoiceData.user = { connect: { id: ownerId } };
+        invoiceData.User = { connect: { id: ownerId } };
         // schoolId zůstane null, což schema.prisma díky otazníku už dovolí
       }
 
