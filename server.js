@@ -1951,6 +1951,40 @@ app.put('/api/user/billing', authMiddleware, async (req, res) => {
   }
 });
 
+/* -------------------------------------------------------
+   GET /api/invoices - Historie faktur pro uživatele
+-------------------------------------------------------- */
+app.get('/api/invoices', authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+
+    // Najdeme faktury, kde je user připojen JAKO JEDNOTLIVEC (relation User)
+    // NEBO kde je user ADMIN ŠKOLY a faktura patří ŠKOLE.
+    
+    let whereCondition = {};
+
+    if (user.schoolId && user.role === 'SCHOOL_ADMIN') {
+        // Pokud je admin školy, vidí faktury školy
+        whereCondition = { schoolId: user.schoolId };
+    } else {
+        // Jinak vidí své soukromé faktury
+        whereCondition = { userId: user.id };
+    }
+
+    const invoices = await prisma.invoice.findMany({
+      where: whereCondition,
+      orderBy: { issuedAt: 'desc' },
+      take: 50 // Max 50 posledních faktur
+    });
+
+    res.json({ ok: true, invoices });
+
+  } catch (err) {
+    console.error("Chyba načítání faktur:", err);
+    res.status(500).json({ ok: false, error: "Chyba serveru při načítání faktur." });
+  }
+});
+
 // ---------- WORKSHEET LOGS ----------
 app.get("/api/admin/worksheets", authMiddleware, async (req, res) => {
   if (req.user.role !== "ADMIN")
