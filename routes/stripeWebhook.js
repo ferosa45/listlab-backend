@@ -35,142 +35,106 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
           ownerId = invoice.metadata?.ownerId;
       }
 
+      if (!ownerId) {
+          console.error("❌ No ownerId found in metadata/subscription");
+          return res.status(400).json({ error: "Missing metadata" });
+      }
+
       console.log(`💰 Faktura zaplacena. Owner: ${ownerType} ID: ${ownerId}`);
 
-      // --- A) FAKTURA PRO ŠKOLU ---
-      if (ownerType === "SCHOOL" && ownerId) {
-          const schoolData = await prisma.school.findUnique({ where: { id: ownerId } });
-          
-          if (!schoolData) {
-            console.warn(`⚠️ Škola s ID ${ownerId} nenalezena, fakturu neukládám.`);
-            return res.json({ received: true });
-          }
+      const amountPaid = invoice.amount_paid;
+      const currency = invoice.currency;
+      const stripeInvoiceId = invoice.id;
+      const customerId = invoice.customer;
 
-          const { number, sequence } = await generateInvoiceNumber();
-          const currentYear = new Date().getFullYear();
+      const billingDetails = {
+        name: invoice.customer_name || "",
+        street: invoice.customer_address?.line1 || "",
+        city: invoice.customer_address?.city || "",
+        zip: invoice.customer_address?.postal_code || "",
+        country: invoice.customer_address?.country || "CZ",
+      };
 
-          await prisma.invoice.create({
-            data: {
-                year: currentYear,
-                sequence: sequence,
-                number: number,
-                stripeInvoiceId: invoice.id,
-                stripeCustomerId: invoice.customer,
-                amountPaid: invoice.amount_paid,
-                currency: invoice.currency,
-                status: "PAID",
-                issuedAt: new Date(),
-                billingName: invoice.customer_name || schoolData.billingName || schoolData.name, 
-                billingStreet: invoice.customer_address?.line1 || schoolData.billingStreet || "",
-                billingCity: invoice.customer_address?.city || schoolData.billingCity || "",
-                billingZip: invoice.customer_address?.postal_code || schoolData.billingZip || "",
-                billingCountry: invoice.customer_address?.country || schoolData.billingCountry || "CZ",
-                billingIco: invoice.metadata?.ico || schoolData.billingIco || "",
-                billingDic: invoice.metadata?.dic || schoolData.billingDic || "",
-                school: { connect: { id: ownerId } }
-            }
-         });
-         console.log(`✅ Faktura ${number} uložena pro školu.`);
-      } 
-      
-      // --- B) FAKTURA PRO UŽIVATELE (NOVÉ) ---
-      else if (ownerType === "USER" && ownerId) {
-          const userData = await prisma.user.findUnique({ where: { id: ownerId } });
+      const now = new Date();
+      const lastInvoice = await prisma.invoice.findFirst({
+        where: { year: now.getFullYear() },
+        orderBy: { sequence: "desc" },
+      });
 
-          if (!userData) {
-            console.warn(`⚠️ Uživatel s ID ${ownerId} nenalezen, fakturu neukládám.`);
-            return res.json({ received: true });
-          }
+      const nextSequence = lastInvoice ? lastInvoice.sequence + 1 : 1;
+      const invoiceNumber = generateInvoiceNumber(now.getFullYear(), nextSequence);
 
-          const { number, sequence } = await generateInvoiceNumber();
-          const currentYear = new Date().getFullYear();
+      // --- PŘÍPRAVA DAT PRO FAKTURU ---
+      const invoiceData = {
+        year: now.getFullYear(),
+        sequence: nextSequence,
+        number: invoiceNumber,
+        stripeInvoiceId,
+        stripeCustomerId: customerId,
+        amountPaid,
+        currency,
+        status: "PAID",
+        issuedAt: new Date(),
+        billingName: billingDetails.name,
+        billingStreet: billingDetails.street,
+        billingCity: billingDetails.city,
+        billingZip: billingDetails.zip,
+        billingCountry: billingDetails.country,
+      };
 
-          // Poznámka: Uživatel nemá IČO/DIČ v DB, bereme jen z faktury nebo fallback
-          await prisma.invoice.create({
-            data: {
-                year: currentYear,
-                sequence: sequence,
-                number: number,
-                stripeInvoiceId: invoice.id,
-                stripeCustomerId: invoice.customer,
-                amountPaid: invoice.amount_paid,
-                currency: invoice.currency,
-                status: "PAID",
-                issuedAt: new Date(),
-                billingName: invoice.customer_name || userData.email, 
-                billingStreet: invoice.customer_address?.line1 || "",
-                billingCity: invoice.customer_address?.city || "",
-                billingZip: invoice.customer_address?.postal_code || "",
-                billingCountry: invoice.customer_address?.country || "CZ",
-                user: { connect: { id: ownerId } } // 👈 PROPOJENÍ S USEREM
-            }
-         });
-         console.log(`✅ Faktura ${number} uložena pro uživatele.`);
+      // --- LOGIKA PŘIPOJENÍ (ŠKOLA vs UŽIVATEL) ---
+      if (ownerType === "SCHOOL") {
+        invoiceData.school = { connect: { id: ownerId } };
+      } else if (ownerType === "USER") {
+        invoiceData.user = { connect: { id: ownerId } };
+        // DŮLEŽITÉ: U jednotlivce nepřipojujeme školu, i kdyby tam nějaká byla, 
+        // aby to nezpůsobilo chybu, pokud by pole 'school' v DB vyžadovalo existenci školy.
       }
+
+      await prisma.invoice.create({
+        data: invoiceData
+      });
+
+      console.log(`📄 Faktura ${invoiceNumber} uložena do DB.`);
     }
 
     // ======================================================
-    // 2️⃣ ZMĚNA / VYTVOŘENÍ PŘEDPLATNÉHO
+    // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (checkout nebo update)
     // ======================================================
-    if (
-      event.type === "customer.subscription.created" ||
-      event.type === "customer.subscription.updated"
-    ) {
-      const sub = event.data.object;
-      const { ownerType, ownerId, planCode } = sub.metadata;
+    if (event.type === "checkout.session.completed" || event.type === "customer.subscription.updated") {
+      const sessionOrSub = event.data.object;
       
-      // 👇 Zjištění typu plánu (Měsíční vs Roční) - SPOLEČNÉ PRO VŠECHNY
-      const price = sub.items.data[0].price;
-      const interval = price.recurring.interval; // "month" nebo "year"
-      
-      // Určíme dynamický kód plánu (např. PRO_MONTHLY, PRO_YEARLY, TEAM_MONTHLY...)
-      // Pokud je v metadatech planCode (např. TEAM_MONTHLY), zkusíme zachovat prefix
-      let basePlanName = "PRO"; // Default pro jednotlivce
-      if (planCode && planCode.includes("TEAM")) basePlanName = "TEAM";
+      let ownerType, ownerId, activePlanCode;
 
-      let activePlanCode = `${basePlanName}_${interval === "year" ? "YEARLY" : "MONTHLY"}`;
-      
-      // Pokud máme v metadatech přesný kód a sedí interval, použijeme ten (pro jistotu)
-      if (planCode && planCode.includes(interval === "year" ? "YEARLY" : "MONTHLY")) {
-          activePlanCode = planCode;
+      if (event.type === "checkout.session.completed") {
+          ownerType = sessionOrSub.metadata.ownerType;
+          ownerId = sessionOrSub.metadata.ownerId;
+          activePlanCode = sessionOrSub.metadata.planCode;
+      } else {
+          ownerType = sessionOrSub.metadata.ownerType;
+          ownerId = sessionOrSub.metadata.ownerId;
+          // U subscription.updated získáme planCode z items
+          activePlanCode = sessionOrSub.items.data[0].plan.metadata.planCode;
       }
 
-      const status = sub.status;
-      const currentPeriodEnd = new Date(sub.current_period_end * 1000);
-
-      // --- A) UPDATE PRO ŠKOLU ---
-      if (ownerType === "SCHOOL" && ownerId) {
-          const quantity = sub.items?.data[0]?.quantity || 1;
-          
-          let newSeatLimit = 0;
-          if (status === 'active' || status === 'trialing') {
-              if (activePlanCode.includes("TEAM")) {
-                  newSeatLimit = quantity; 
-              }
-          }
-
+      if (ownerType === "SCHOOL") {
+          const seatLimit = activePlanCode.includes("TEAM") ? 20 : 1;
           await prisma.school.update({
             where: { id: ownerId },
             data: {
-              subscriptionStatus: status,
-              subscriptionUntil: currentPeriodEnd,
-              seatLimit: newSeatLimit,
-              stripeCustomerId: sub.customer, 
-              subscriptionPlan: activePlanCode, 
+              subscriptionStatus: "active",
+              subscriptionPlan: activePlanCode,
+              seatLimit: seatLimit,
             }
           });
-          console.log(`✅ Škola ${ownerId} aktualizována: ${activePlanCode} (Licence: ${newSeatLimit})`);
+          console.log(`✅ Škola ${ownerId} aktualizována: ${activePlanCode}`);
       } 
-      
-      // --- B) UPDATE PRO UŽIVATELE (NOVÉ) ---
-      else if (ownerType === "USER" && ownerId) {
+      else if (ownerType === "USER") {
           await prisma.user.update({
             where: { id: ownerId },
             data: {
-              subscriptionStatus: status,
-              subscriptionUntil: currentPeriodEnd,
-              stripeCustomerId: sub.customer,
-              subscriptionPlan: activePlanCode, // Uložíme např. PRO_MONTHLY
+              subscriptionStatus: "active",
+              subscriptionPlan: activePlanCode,
             }
           });
           console.log(`✅ User ${ownerId} aktualizován: ${activePlanCode}`);
@@ -195,7 +159,6 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
             });
             console.log(`❌ Škola ${ownerId} - předplatné zrušeno.`);
         }
-        // 👇 RESET PRO UŽIVATELE
         else if (ownerType === "USER") {
             await prisma.user.update({
                 where: { id: ownerId },
@@ -212,7 +175,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
 
   } catch (err) {
     console.error("❌ Webhook processing error:", err);
-    return res.status(200).send(`Error processing webhook: ${err.message}`);
+    res.status(500).json({ error: "Webhook failed" });
   }
 });
 
