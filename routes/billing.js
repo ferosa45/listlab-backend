@@ -18,27 +18,23 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Chybí parametry platby.' })
     }
 
-    // 🕵️‍♂️ ROZHODOVACÍ LOGIKA: Je to nákup pro ŠKOLU, nebo pro OSOBU?
-    // Považujeme to za školní nákup, pokud:
-    // 1. Uživatel je přiřazen ke škole (má schoolId)
-    // 2. Uživatel je ADMINEM této školy
-    // 3. Plán obsahuje slovo "TEAM" (pojistka, aby si admin mohl koupit i PRO pro sebe, pokud bychom to v budoucnu chtěli oddělit)
+    // 🕵️‍♂️ ROZHODOVACÍ LOGIKA
     const isSchoolPurchase = user.schoolId && user.role === 'SCHOOL_ADMIN' && planCode.includes('TEAM');
 
     let customerId;
     let metadata = {};
     let finalQuantity = 1;
 
+    // ==========================================
+    // 1. PŘÍPRAVA ZÁKAZNÍKA (Vytvoření / Načtení)
+    // ==========================================
     if (isSchoolPurchase) {
-        // ==========================
-        // 🏫 VĚTEV PRO ŠKOLU
-        // ==========================
+        // --- ŠKOLA ---
         const school = await prisma.school.findUnique({ where: { id: user.schoolId } })
         if (!school) return res.status(404).json({ error: 'Škola nenalezena.' })
 
         customerId = school.stripeCustomerId
 
-        // Vytvoření zákazníka (Škola), pokud neexistuje
         if (!customerId) {
             const customer = await stripe.customers.create({
                 email: user.email,
@@ -58,22 +54,17 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
             planCode: planCode,
             billingPeriod: billingPeriod
         };
-        finalQuantity = quantity; // Škola může mít více licencí
+        finalQuantity = quantity; 
 
     } else {
-        // ==========================
-        // 👤 VĚTEV PRO JEDNOTLIVCE
-        // ==========================
-        
-        // Musíme načíst aktuální data uživatele z DB, abychom měli jistotu, že máme stripeCustomerId
+        // --- JEDNOTLIVEC (USER) ---
         const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
         customerId = dbUser.stripeCustomerId;
 
-        // Vytvoření zákazníka (User), pokud neexistuje
         if (!customerId) {
             const customer = await stripe.customers.create({
                 email: user.email,
-                name: user.email, // U jednotlivce stačí email
+                name: user.email,
                 metadata: { userId: user.id, ownerType: 'USER' }
             })
             customerId = customer.id
@@ -89,10 +80,12 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
             planCode: planCode,
             billingPeriod: billingPeriod
         };
-        finalQuantity = 1; // Jednotlivec má vždy 1 licenci
+        finalQuantity = 1; 
     }
 
-    // 3. Vytvoření Checkout Session (Společné)
+    // ==========================================
+    // 2. VYTVOŘENÍ SESSION (Tady byla chyba)
+    // ==========================================
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
@@ -105,13 +98,20 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
         }
       ],
 
-      // Přesměrování - pokud je to školní nákup, vracíme se do adminu, jinak do profilu
-      success_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}${isSchoolPurchase ? '/school-admin' : '/user-admin'}?success=true`,
-      cancel_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}${isSchoolPurchase ? '/school-admin' : '/user-admin'}?canceled=true`,
+      // 👇👇👇 TOTO JE TA OPRAVA 👇👇👇
+      // Musíme poslat metadata na dvě místa:
+      
+      // 1. Přímo do Session (pro událost checkout.session.completed)
+      metadata: metadata,
 
+      // 2. Do Subscription (pro budoucí faktury a updates)
       subscription_data: {
         metadata: metadata
-      }
+      },
+      // 👆👆👆 KONEC OPRAVY 👆👆👆
+
+      success_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}${isSchoolPurchase ? '/school-admin' : '/user-admin'}?success=true`,
+      cancel_url: `${process.env.FRONTEND_ORIGIN || 'http://localhost:5173'}${isSchoolPurchase ? '/school-admin' : '/user-admin'}?canceled=true`,
     })
 
     return res.json({ url: session.url })
