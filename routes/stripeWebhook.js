@@ -86,53 +86,37 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
     }
 
     // ======================================================
-    // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (To, co ti padalo)
+    // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (checkout, update)
     // ======================================================
     if (event.type === "checkout.session.completed" || event.type === "customer.subscription.updated") {
       const sessionOrSub = event.data.object;
-      const metadata = sessionOrSub.metadata || {};
-
-      // 1. Primární zdroj dat je to, co přišlo ve webhooku (Session)
-      let ownerId = metadata.ownerId;
-      let ownerType = metadata.ownerType;
-      let planCode = metadata.planCode;
       
-      // ID subscription a zákazníka
+      // Získáme ID subscription (buď je přímo v objektu, nebo odkazem v session)
       const subId = sessionOrSub.subscription || sessionOrSub.id;
-      let stripeCustomerId = sessionOrSub.customer;
-
-      // 2. Pokusíme se načíst přesné datum konce ze Stripe
-      // Default: nastavíme +31 dní, kdyby Stripe API selhalo (pojistka)
-      let currentPeriodEnd = new Date();
-      currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 31);
       
-      let status = 'active';
-
-      if (subId && typeof subId === 'string') {
-        try {
-            const sub = await stripe.subscriptions.retrieve(subId);
-            
-            // Pokud metadata nebyla v session, vezmeme je ze subscription
-            if (!ownerId) ownerId = sub.metadata.ownerId;
-            if (!ownerType) ownerType = sub.metadata.ownerType;
-            if (!planCode) planCode = sub.metadata.planCode;
-
-            // Datum expirace
-            if (sub.current_period_end) {
-                currentPeriodEnd = new Date(sub.current_period_end * 1000);
-            }
-            
-            stripeCustomerId = sub.customer;
-            status = ['active', 'trialing'].includes(sub.status) ? 'active' : 'canceled';
-
-        } catch (e) {
-            console.error("⚠️ Chyba při stahování subscription details, používám fallback data.", e);
-        }
+      if (!subId || typeof subId !== 'string') {
+          console.error("❌ Chybí ID předplatného, nelze aktualizovat.");
+          return res.json({ received: true });
       }
 
-      console.log(`🔍 Update DB: ${ownerType} ${ownerId} -> ${planCode}`);
+      // NAČTENÍ PŘEDPLATNÉHO ZE STRIPE (Jediný zdroj pravdy)
+      const sub = await stripe.subscriptions.retrieve(subId);
 
-      // 3. Zápis do databáze (jen pokud máme ID)
+      // Metadata zkusíme najít v Session, pokud chybí, vezmeme je ze Subscription
+      // (Tvůj případ: jsou v sessionOrSub.metadata)
+      const ownerId = sessionOrSub.metadata?.ownerId || sub.metadata?.ownerId;
+      const ownerType = sessionOrSub.metadata?.ownerType || sub.metadata?.ownerType;
+      const planCode = sessionOrSub.metadata?.planCode || sub.metadata?.planCode;
+
+      // 100% PŘESNÉ DATUM ZE STRIPE
+      // current_period_end je UNIX timestamp (vteřiny), JS chce milisekundy (* 1000)
+      const currentPeriodEnd = new Date(sub.current_period_end * 1000);
+      
+      const stripeCustomerId = sub.customer;
+      const status = ['active', 'trialing'].includes(sub.status) ? 'active' : 'canceled';
+
+      console.log(`🔍 Update DB: ${ownerType} ${ownerId} -> ${planCode} (Do: ${currentPeriodEnd.toISOString()})`);
+
       if (ownerId && ownerType) {
         if (ownerType === "SCHOOL") {
             let newSeatLimit = 1; 
@@ -144,7 +128,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
               where: { id: ownerId },
               data: {
                 subscriptionStatus: status,
-                subscriptionUntil: currentPeriodEnd,
+                subscriptionUntil: currentPeriodEnd, // Přesné datum
                 seatLimit: newSeatLimit,
                 stripeCustomerId: stripeCustomerId, 
                 subscriptionPlan: planCode, 
@@ -157,14 +141,14 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
               data: {
                 subscriptionStatus: status,       
                 subscriptionPlan: planCode, 
-                subscriptionUntil: currentPeriodEnd, 
+                subscriptionUntil: currentPeriodEnd, // Přesné datum
                 stripeCustomerId: stripeCustomerId    
               }
             });
         }
         console.log(`✅ Úspěšně aktualizováno: ${ownerType} ${ownerId}`);
       } else {
-          console.warn("❌ Webhook nemá ownerId, ignoruji.");
+          console.warn("❌ Webhook nemá ownerId (ani v Session, ani v Subscription), ignoruji.");
       }
     }
 
