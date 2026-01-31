@@ -86,69 +86,82 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
     }
 
     // ======================================================
-    // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (checkout, update)
+    // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (Dynamický update)
     // ======================================================
     if (event.type === "checkout.session.completed" || event.type === "customer.subscription.updated") {
       const sessionOrSub = event.data.object;
-      
-      // Získáme ID subscription (buď je přímo v objektu, nebo odkazem v session)
       const subId = sessionOrSub.subscription || sessionOrSub.id;
       
       if (!subId || typeof subId !== 'string') {
-          console.error("❌ Chybí ID předplatného, nelze aktualizovat.");
           return res.json({ received: true });
       }
 
-      // NAČTENÍ PŘEDPLATNÉHO ZE STRIPE (Jediný zdroj pravdy)
+      // 1. Načteme data ze Stripe
       const sub = await stripe.subscriptions.retrieve(subId);
 
-      // Metadata zkusíme najít v Session, pokud chybí, vezmeme je ze Subscription
-      // (Tvůj případ: jsou v sessionOrSub.metadata)
+      // 2. Metadata
       const ownerId = sessionOrSub.metadata?.ownerId || sub.metadata?.ownerId;
       const ownerType = sessionOrSub.metadata?.ownerType || sub.metadata?.ownerType;
       const planCode = sessionOrSub.metadata?.planCode || sub.metadata?.planCode;
-
-      // 100% PŘESNÉ DATUM ZE STRIPE
-      // current_period_end je UNIX timestamp (vteřiny), JS chce milisekundy (* 1000)
-      const currentPeriodEnd = new Date(sub.current_period_end * 1000);
-      
       const stripeCustomerId = sub.customer;
+
+      // 3. Status
       const status = ['active', 'trialing'].includes(sub.status) ? 'active' : 'canceled';
 
-      console.log(`🔍 Update DB: ${ownerType} ${ownerId} -> ${planCode} (Do: ${currentPeriodEnd.toISOString()})`);
+      // 4. Datum - Získáme ho, ale zatím neukládáme
+      let validDate = null;
+      if (sub.current_period_end) {
+          const d = new Date(sub.current_period_end * 1000);
+          // Ověříme, že to není "Invalid Date"
+          if (!isNaN(d.getTime())) {
+              validDate = d;
+          }
+      }
+
+      console.log(`🔍 Zpracovávám: ${ownerType} ${ownerId} -> ${planCode}`);
 
       if (ownerId && ownerType) {
+        
+        // --- DYNAMICKÁ PŘÍPRAVA DAT ---
+        // Základní data, která máme vždy
+        const dataToUpdate = {
+            subscriptionStatus: status,
+            subscriptionPlan: planCode,
+            stripeCustomerId: stripeCustomerId
+        };
+
+        // Datum přidáme do update objektu JEN TEHDY, pokud ho Stripe skutečně poslal
+        // Pokud ho neposlal, Prisma tento sloupec ignoruje a nechá tam to, co tam bylo (nebo null)
+        if (validDate) {
+            dataToUpdate.subscriptionUntil = validDate;
+        }
+
+        // --- ZÁPIS DO DB ---
         if (ownerType === "SCHOOL") {
             let newSeatLimit = 1; 
             if (planCode && planCode.includes('TEAM')) {
                newSeatLimit = 20; 
             }
+            // Přidáme limit do objektu
+            dataToUpdate.seatLimit = newSeatLimit;
 
             await prisma.school.update({
               where: { id: ownerId },
-              data: {
-                subscriptionStatus: status,
-                subscriptionUntil: currentPeriodEnd, // Přesné datum
-                seatLimit: newSeatLimit,
-                stripeCustomerId: stripeCustomerId, 
-                subscriptionPlan: planCode, 
-              }
+              data: dataToUpdate // <--- Použijeme dynamický objekt
             });
         } 
         else if (ownerType === "USER") {
             await prisma.user.update({
               where: { id: ownerId },
-              data: {
-                subscriptionStatus: status,       
-                subscriptionPlan: planCode, 
-                subscriptionUntil: currentPeriodEnd, // Přesné datum
-                stripeCustomerId: stripeCustomerId    
-              }
+              data: dataToUpdate // <--- Použijeme dynamický objekt
             });
         }
-        console.log(`✅ Úspěšně aktualizováno: ${ownerType} ${ownerId}`);
+        
+        // Logování - vypíšeme datum jen pokud existuje
+        console.log(`✅ Uloženo pro ${ownerType}: ${planCode}, Datum: ${validDate ? validDate.toISOString() : 'Zatím nedostupné'}`);
+      
       } else {
-          console.warn("❌ Webhook nemá ownerId (ani v Session, ani v Subscription), ignoruji.");
+          console.warn("⚠️ Chybí ownerId/ownerType, přeskakuji.");
       }
     }
 
