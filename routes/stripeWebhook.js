@@ -93,18 +93,31 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
     // ======================================================
     // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (checkout, update)
     // ======================================================
+    // ======================================================
+    // 2️⃣ AKTUALIZACE PŘEDPLATNÉHO (checkout, update)
+    // ======================================================
     if (event.type === "checkout.session.completed" || event.type === "customer.subscription.updated") {
       const sessionOrSub = event.data.object;
       
-      // Získáme ID subscription
+      // 1. Získáme ID subscription
       const subId = sessionOrSub.subscription || sessionOrSub.id;
       
-      // Vždy načteme čerstvá data ze Stripe
+      // 2. Načteme čerstvá data o předplatném (hlavně kvůli datumu expirace)
       const sub = await stripe.subscriptions.retrieve(subId);
       
-      const ownerType = sub.metadata.ownerType;
-      const ownerId = sub.metadata.ownerId;
-      const activePlanCode = sub.metadata.planCode;
+      // 3. INTELIGENTNÍ ZÍSKÁNÍ METADAT (To je ta oprava!)
+      // Nejdřív se podíváme do objektu, který přišel (Session), pokud tam nejsou, zkusíme Subscription
+      const ownerType = sessionOrSub.metadata?.ownerType || sub.metadata?.ownerType;
+      const ownerId = sessionOrSub.metadata?.ownerId || sub.metadata?.ownerId;
+      const activePlanCode = sessionOrSub.metadata?.planCode || sub.metadata?.planCode;
+
+      console.log(`🔍 Webhook processing: Type=${ownerType}, ID=${ownerId}, Plan=${activePlanCode}`);
+
+      if (!ownerId || !ownerType) {
+        console.error("❌ CHYBA: Metadata nenalezena ani v Session, ani v Subscription!");
+        // Vracíme 200, aby Stripe nezkoušel posílat chybný požadavek donekonečna
+        return res.json({ received: true });
+      }
 
       // Datum konce předplatného (převod z UNIX timestamp)
       const currentPeriodEnd = new Date(sub.current_period_end * 1000);
@@ -113,10 +126,9 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       const status = ['active', 'trialing'].includes(sub.status) ? 'active' : 'canceled';
 
       if (ownerType === "SCHOOL") {
-          // --- TVOJE PŮVODNÍ LOGIKA PRO ŠKOLU (NEMĚNĚNO) ---
           let newSeatLimit = 1; 
-          if (activePlanCode === 'TEAM_MONTHLY' || activePlanCode === 'TEAM_YEARLY') {
-             newSeatLimit = 20; 
+          if (activePlanCode && (activePlanCode.includes('TEAM_MONTHLY') || activePlanCode.includes('TEAM_YEARLY'))) {
+             newSeatLimit = 10; 
           }
 
           await prisma.school.update({
@@ -129,17 +141,16 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
               subscriptionPlan: activePlanCode, 
             }
           });
-          console.log(`✅ Škola ${ownerId} aktualizována: ${activePlanCode} (Licence: ${newSeatLimit})`);
+          console.log(`✅ Škola ${ownerId} aktualizována.`);
       } 
-      // 👇👇👇 NOVÁ ČÁST PRO JEDNOTLIVCE (USER) 👇👇👇
       else if (ownerType === "USER") {
           await prisma.user.update({
             where: { id: ownerId },
             data: {
-              subscriptionStatus: status,       // active / canceled
-              subscriptionPlan: activePlanCode, // PRO_MONTHLY atd.
-              subscriptionUntil: currentPeriodEnd, // Přesné datum
-              stripeCustomerId: sub.customer    // Uložíme i ID zákazníka
+              subscriptionStatus: status,       
+              subscriptionPlan: activePlanCode, 
+              subscriptionUntil: currentPeriodEnd, 
+              stripeCustomerId: sub.customer    
             }
           });
           console.log(`✅ User ${ownerId} aktualizován: ${activePlanCode}, do: ${currentPeriodEnd.toISOString()}`);
