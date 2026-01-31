@@ -122,24 +122,48 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
 
         if (ownerId && ownerType) {
             
-            // --- BEZPEČNÉ DATUM (Ochrana proti Invalid Date) ---
-            let currentPeriodStart = new Date();
+            // --- PŘÍSNÁ KONTROLA DATA (Žádné dopočítávání) ---
+            let currentPeriodEnd = null;
+            let currentPeriodStart = null;
+
+            // Získáme Start Date
             if (sub.current_period_start) {
-                currentPeriodStart = new Date(sub.current_period_start * 1000);
+                const d = new Date(sub.current_period_start * 1000);
+                if (!isNaN(d.getTime())) currentPeriodStart = d;
             }
 
-            // Zkusíme vzít konec ze Stripe, pokud selže, dáme +30 dní
-            let currentPeriodEnd = new Date();
-            currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 30); 
-
+            // Získáme End Date (Expirace)
             if (sub.current_period_end) {
-                const checkDate = new Date(sub.current_period_end * 1000);
-                if (!isNaN(checkDate.getTime())) {
-                    currentPeriodEnd = checkDate;
+                const d = new Date(sub.current_period_end * 1000);
+                if (!isNaN(d.getTime())) {
+                    currentPeriodEnd = d;
                 }
             }
 
+            // 🔍 LOG PRO OVĚŘENÍ: Tady v Railway uvidíš pravdu
+            if (currentPeriodEnd) {
+                console.log(`✅ SKUTEČNÉ DATUM ZE STRIPE: ${currentPeriodEnd.toISOString()}`);
+            } else {
+                console.warn(`⚠️ STRIPE NEPOSLAL DATUM! Ukládám null.`);
+            }
+
             // 1. ZÁPIS DO TABULKY SUBSCRIPTION
+            // Pokud currentPeriodEnd je null, uloží se null (nebo selže create, pokud je v DB povinné)
+            // Většinou je v Prismě DateTime? (nepovinné), takže to projde.
+            const subscriptionData = {
+                stripeSubscriptionId: sub.id,
+                stripeCustomerId: sub.customer,
+                stripePriceId: sub.items.data[0].price.id,
+                ownerType: ownerType,
+                ownerId: ownerId,
+                planCode: planCode,
+                billingPeriod: sub.items.data[0].price.recurring?.interval || 'month',
+                status: sub.status,
+                currentPeriodStart: currentPeriodStart || new Date(), // Start musí být vyplněn
+                currentPeriodEnd: currentPeriodEnd, // Zde posíláme realitu (datum nebo null)
+                seatLimit: ownerType === 'SCHOOL' ? (planCode?.includes('TEAM') ? 20 : 1) : null
+            };
+
             await prisma.subscription.upsert({
               where: { stripeSubscriptionId: sub.id },
               update: {
@@ -149,28 +173,20 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
                   planCode: planCode,
                   cancelAtPeriodEnd: sub.cancel_at_period_end
               },
-              create: {
-                  stripeSubscriptionId: sub.id,
-                  stripeCustomerId: sub.customer,
-                  stripePriceId: sub.items.data[0].price.id,
-                  ownerType: ownerType,
-                  ownerId: ownerId,
-                  planCode: planCode,
-                  billingPeriod: sub.items.data[0].price.recurring?.interval || 'month',
-                  status: sub.status,
-                  currentPeriodStart: currentPeriodStart,
-                  currentPeriodEnd: currentPeriodEnd,
-                  seatLimit: ownerType === 'SCHOOL' ? (planCode?.includes('TEAM') ? 20 : 1) : null
-              }
+              create: subscriptionData
             });
 
             // 2. UPDATE USER / SCHOOL MODELU
             const updateData = {
                 subscriptionStatus: sub.status,
                 subscriptionPlan: planCode,
-                subscriptionUntil: currentPeriodEnd,
                 stripeCustomerId: sub.customer
             };
+
+            // Datum aktualizujeme jen pokud existuje
+            if (currentPeriodEnd) {
+                updateData.subscriptionUntil = currentPeriodEnd;
+            }
 
             if (ownerType === "SCHOOL") {
                 let newSeatLimit = 1;
@@ -189,7 +205,7 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
                   data: updateData
                 });
             }
-            console.log(`✅ Subscription & Model aktualizován pro ${ownerType}.`);
+            console.log(`✅ Subscription & Model aktualizován (BEZ FALLBACKU).`);
         }
       }
     }
