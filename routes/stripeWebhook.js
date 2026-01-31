@@ -111,91 +111,103 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
       event.type === "customer.subscription.updated"
     ) {
       const dataObject = event.data.object;
-      
       let sub;
 
-      // 🔍 ROZHODOVACÍ LOGIKA: Kde vezmeme data?
+      // A) Přímá data z webhooku (nejrychlejší, nejpřesnější)
       if (dataObject.object === 'subscription') {
-          // A) Událost je přímo Subscription -> Použijeme data z webhooku (je to rychlejší a přesnější)
           sub = dataObject;
-          console.log("⚡ Používám přímá data z webhooku (žádné další volání API).");
-      } else {
-          // B) Událost je Checkout Session -> Musíme stáhnout Subscription z API
+          console.log("⚡ Používám data přímo z webhooku.");
+      } 
+      // B) Checkout session -> musíme volat API
+      else {
           const subId = dataObject.subscription;
           if (subId) {
             sub = await stripe.subscriptions.retrieve(subId);
-            console.log("🌐 Stahuji data z API (Checkout Session).");
+            console.log("🌐 Stahuji data z API (Checkout).");
           }
       }
 
       if (sub) {
-        // Metadata: Zkusíme je najít v Session (pokud existuje) nebo přímo v Sub
         const ownerType = dataObject.metadata?.ownerType || sub.metadata?.ownerType;
         const ownerId = dataObject.metadata?.ownerId || sub.metadata?.ownerId;
         const planCode = dataObject.metadata?.planCode || sub.metadata?.planCode;
 
         if (ownerId && ownerType) {
             
-            // --- LOGOVÁNÍ PRO KONTROLU ---
-            console.log(`🕒 Raw current_period_end ze Stripe: ${sub.current_period_end}`);
-
-            // Získání Start Date
-            let currentPeriodStart = new Date();
-            if (sub.current_period_start) {
-                currentPeriodStart = new Date(sub.current_period_start * 1000);
-            }
-
-            // Získání End Date (Expirace)
-            let currentPeriodEnd = null;
+            // 1. Získáme SKUTEČNÉ datum ze Stripe (pokud existuje)
+            let realStripeDate = null;
             if (sub.current_period_end) {
                 const d = new Date(sub.current_period_end * 1000);
                 if (!isNaN(d.getTime())) {
-                    currentPeriodEnd = d;
+                    realStripeDate = d;
                 }
             }
-            
-            // Pokud by NÁHODOU datum chybělo (což by teď už nemělo), dáme tam raději +30 dní,
-            // aby uživatel v aplikaci neviděl "Předplatné vypršelo".
-            if (!currentPeriodEnd) {
-                console.warn("⚠️ Datum stále chybí, používám fallback +30 dní.");
-                currentPeriodEnd = new Date();
-                currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 30);
+
+            // 2. Připravíme FALLBACK datum (+30 dní) 
+            // Použijeme ho JEN pro 'create', nikdy pro přepis 'update'
+            const fallbackDate = new Date();
+            fallbackDate.setDate(fallbackDate.getDate() + 30);
+
+            // -----------------------------------------------------------
+            // LOGIKA PRO UPDATE (Aktualizace existujícího záznamu)
+            // -----------------------------------------------------------
+            const subscriptionUpdateData = {
+                status: sub.status,
+                currentPeriodStart: new Date(sub.current_period_start * 1000),
+                planCode: planCode,
+                cancelAtPeriodEnd: sub.cancel_at_period_end
+            };
+
+            // 🔥 KLÍČOVÁ ZMĚNA:
+            // Do UPDATE dáme datum jen tehdy, pokud je ze Stripe skutečné.
+            // Pokud Stripe datum neposlal, NEBUDEME ho přepisovat naším vymyšleným fallbackem.
+            if (realStripeDate) {
+                subscriptionUpdateData.currentPeriodEnd = realStripeDate;
+                console.log(`✅ Mám real datum (${realStripeDate.toISOString()}) -> Aktualizuji DB.`);
             } else {
-                console.log(`✅ Datum úspěšně převedeno: ${currentPeriodEnd.toISOString()}`);
+                console.warn(`⚠️ Stripe nedal datum. IGNORUJI aktualizaci data (nechávám původní).`);
             }
+
+            // -----------------------------------------------------------
+            // LOGIKA PRO CREATE (Vytvoření nového záznamu)
+            // -----------------------------------------------------------
+            // U Create musíme dát nějaké datum, aby Prisma nespadla. 
+            // Takže tady použijeme realStripeDate, a když není, tak fallbackDate.
+            const subscriptionCreateData = {
+                stripeSubscriptionId: sub.id,
+                stripeCustomerId: sub.customer,
+                stripePriceId: sub.items.data[0].price.id,
+                ownerType: ownerType,
+                ownerId: ownerId,
+                planCode: planCode,
+                billingPeriod: sub.items.data[0].price.recurring?.interval || 'month',
+                status: sub.status,
+                currentPeriodStart: new Date(sub.current_period_start * 1000),
+                
+                // Tady musíme dát něco. Pokud nemáme real, dáme fallback.
+                currentPeriodEnd: realStripeDate || fallbackDate, 
+                
+                seatLimit: ownerType === 'SCHOOL' ? (planCode?.includes('TEAM') ? 20 : 1) : null
+            };
 
             // 1. ZÁPIS DO TABULKY SUBSCRIPTION
             await prisma.subscription.upsert({
               where: { stripeSubscriptionId: sub.id },
-              update: {
-                  status: sub.status,
-                  currentPeriodEnd: currentPeriodEnd,
-                  currentPeriodStart: currentPeriodStart,
-                  planCode: planCode,
-                  cancelAtPeriodEnd: sub.cancel_at_period_end
-              },
-              create: {
-                  stripeSubscriptionId: sub.id,
-                  stripeCustomerId: sub.customer,
-                  stripePriceId: sub.items.data[0].price.id,
-                  ownerType: ownerType,
-                  ownerId: ownerId,
-                  planCode: planCode,
-                  billingPeriod: sub.items.data[0].price.recurring?.interval || 'month',
-                  status: sub.status,
-                  currentPeriodStart: currentPeriodStart,
-                  currentPeriodEnd: currentPeriodEnd,
-                  seatLimit: ownerType === 'SCHOOL' ? (planCode?.includes('TEAM') ? 20 : 1) : null
-              }
+              update: subscriptionUpdateData, // <-- Tady je ta ochrana
+              create: subscriptionCreateData
             });
 
             // 2. UPDATE USER / SCHOOL MODELU
-            const updateData = {
+            const modelUpdateData = {
                 subscriptionStatus: sub.status,
                 subscriptionPlan: planCode,
-                subscriptionUntil: currentPeriodEnd,
                 stripeCustomerId: sub.customer
             };
+            
+            // Zase: Aktualizujeme Usera/Školu jen pokud máme real datum
+            if (realStripeDate) {
+                modelUpdateData.subscriptionUntil = realStripeDate;
+            }
 
             if (ownerType === "SCHOOL") {
                 let newSeatLimit = 1;
@@ -205,16 +217,16 @@ router.post("/", express.raw({ type: "application/json" }), async (req, res) => 
                 }
                 await prisma.school.update({
                   where: { id: ownerId },
-                  data: { ...updateData, seatLimit: newSeatLimit }
+                  data: { ...modelUpdateData, seatLimit: newSeatLimit }
                 });
             } 
             else if (ownerType === "USER") {
                 await prisma.user.update({
                   where: { id: ownerId },
-                  data: updateData
+                  data: modelUpdateData
                 });
             }
-            console.log(`✅ Hotovo: ${ownerType} ${ownerId} má PRO do ${currentPeriodEnd.toISOString()}`);
+            console.log(`✅ Hotovo pro ${ownerType}.`);
         }
       }
     }
